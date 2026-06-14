@@ -196,6 +196,7 @@ const lavaUniforms = {
   uCoolingOffset: { value: 0 },
   uSolidification: { value: 0 },
   uAge: { value: 30 },
+  uReveal: { value: 1 },
 };
 
 const lavaVertexShader = `
@@ -227,6 +228,7 @@ const lavaFragmentShader = `
   uniform float uCoolingOffset;
   uniform float uSolidification;
   uniform float uAge;
+  uniform float uReveal;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -261,6 +263,8 @@ const lavaFragmentShader = `
     vec2 flowUv = vec2(vUv.x * 4.0, vUv.y * 12.0 - time * 0.42);
     float broad = fbm(flowUv * 0.72);
     float detail = fbm(flowUv * 2.4 + vec2(time * 0.08, 0.0));
+    float frontVariation = (fbm(vec2(vUv.x * 5.0, uReveal * 7.0)) - 0.5) * 0.035;
+    if (vUv.y > uReveal + frontVariation) discard;
     float crustPattern = broad * 0.72 + detail * 0.28;
     float cracks = smoothstep(0.48, 0.56, abs(crustPattern - 0.52));
     float edgeCrust = smoothstep(0.26, 0.48, abs(vUv.x - 0.5));
@@ -302,7 +306,8 @@ const lavaFragmentShader = `
     hotTexture = mix(hotTexture, vec3(1.0, 0.24, 0.015), 0.42);
     hotTexture += hotEmission.r * vec3(1.0, 0.48, 0.045) * mix(0.72, 1.0, 1.0 - hotRoughness);
 
-    float localAge = max(0.0, uAge - vUv.y * 6.0);
+    // The downhill end is farther from the crater, so it cools first.
+    float localAge = max(0.0, uAge + vUv.y * 6.0);
     float lava002Blend = smoothstep(3.0, 8.0, localAge);
     float basaltBlend = smoothstep(11.0, 17.0, localAge);
     vec3 color = mix(hotTexture, cooledTexture + textureGlow, lava002Blend);
@@ -347,6 +352,7 @@ function makeLavaMaterial(usePbr = true, coolingOffset = 0) {
   uniforms.uCoolingOffset.value = coolingOffset;
   uniforms.uSolidification.value = 0;
   uniforms.uAge.value = 30;
+  uniforms.uReveal.value = 1;
   return new THREE.ShaderMaterial({
     uniforms,
     vertexShader: lavaVertexShader,
@@ -461,7 +467,7 @@ function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.userData.fullIndexCount = indices.length;
-  geometry.setDrawRange(0, 0);
+  geometry.setDrawRange(0, indices.length);
   return new THREE.Mesh(geometry, makeLavaMaterial(true, coolingOffset));
 }
 
@@ -523,6 +529,7 @@ function archiveEruption(eruption) {
   basaltArchive = new THREE.Mesh(merged, makeLavaMaterial(true));
   basaltArchive.material.uniforms.uAge.value = 99;
   basaltArchive.material.uniforms.uSolidification.value = 1;
+  basaltArchive.material.uniforms.uReveal.value = 1;
   scene.add(basaltArchive);
 }
 
@@ -724,8 +731,7 @@ function updateEruptions(time) {
   const reveal = THREE.MathUtils.clamp(age / flowDuration, 0, 1);
   refreshGasVents(reveal);
   current.meshes.forEach((mesh) => {
-    const fullCount = mesh.geometry.userData.fullIndexCount;
-    mesh.geometry.setDrawRange(0, Math.floor(fullCount * reveal / 6) * 6);
+    mesh.material.uniforms.uReveal.value = reveal;
     mesh.material.uniforms.uAge.value = age;
     mesh.material.uniforms.uTime.value = visualFlowTime;
     mesh.material.uniforms.uSolidification.value = THREE.MathUtils.clamp((age - 10) / 8, 0, 1);
