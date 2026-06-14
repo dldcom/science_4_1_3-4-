@@ -80,6 +80,18 @@ for (const texture of [lavaColor, lavaEmission, lavaNormal, lavaRoughness]) {
   texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 }
 
+const [basaltColor, basaltNormal, basaltRoughness] = await Promise.all([
+  loader.loadAsync("./assets/basalt/Rock041_1K-JPG_Color.jpg"),
+  loader.loadAsync("./assets/basalt/Rock041_1K-JPG_NormalGL.jpg"),
+  loader.loadAsync("./assets/basalt/Rock041_1K-JPG_Roughness.jpg"),
+]);
+basaltColor.colorSpace = THREE.SRGBColorSpace;
+for (const texture of [basaltColor, basaltNormal, basaltRoughness]) {
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.8, 4.8);
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+}
+
 function hashNoise(x, z) {
   const value = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
   return value - Math.floor(value);
@@ -150,6 +162,9 @@ const lavaUniforms = {
   uLavaEmission: { value: lavaEmission },
   uLavaNormal: { value: lavaNormal },
   uLavaRoughness: { value: lavaRoughness },
+  uBasaltColor: { value: basaltColor },
+  uBasaltNormal: { value: basaltNormal },
+  uBasaltRoughness: { value: basaltRoughness },
   uUsePbr: { value: 1 },
   uCoolingOffset: { value: 0 },
   uSolidification: { value: 0 },
@@ -173,6 +188,9 @@ const lavaFragmentShader = `
   uniform sampler2D uLavaEmission;
   uniform sampler2D uLavaNormal;
   uniform sampler2D uLavaRoughness;
+  uniform sampler2D uBasaltColor;
+  uniform sampler2D uBasaltNormal;
+  uniform sampler2D uBasaltRoughness;
   uniform float uUsePbr;
   uniform float uCoolingOffset;
   uniform float uSolidification;
@@ -242,7 +260,22 @@ const lavaFragmentShader = `
     cooledTexture *= mix(0.82, 1.05, 1.0 - roughnessMap);
     vec3 textureGlow = emissionMap * vec3(1.45, 0.38, 0.035) * (1.0 - uSolidification);
     vec3 color = mix(procedural, cooledTexture + textureGlow, pbrBlend);
-    vec3 basalt = pbrColor * vec3(0.31, 0.32, 0.34);
+    vec2 basaltUv = vec2(vUv.x * 1.8, vUv.y * 4.8);
+    vec3 basaltMap = texture2D(uBasaltColor, basaltUv).rgb;
+    vec3 basaltNormalDetail = texture2D(uBasaltNormal, basaltUv).rgb;
+    float basaltRoughnessMap = texture2D(uBasaltRoughness, basaltUv).r;
+    float basaltRelief = dot(basaltNormalDetail, vec3(0.2, 0.68, 0.12));
+    vec3 basalt = mix(vec3(0.055), basaltMap, 0.9) * mix(0.82, 1.24, basaltRelief);
+    basalt *= mix(0.94, 1.12, 1.0 - basaltRoughnessMap);
+
+    // A few gas bubbles leave dark pores after solidification.
+    vec2 poreGrid = floor(basaltUv * vec2(4.0, 2.4));
+    vec2 poreCell = fract(basaltUv * vec2(4.0, 2.4)) - 0.5;
+    float poreSeed = hash(poreGrid + vec2(71.2, 19.8));
+    float poreRadius = mix(0.08, 0.2, hash(poreGrid + 4.7));
+    float pore = (1.0 - smoothstep(poreRadius * 0.62, poreRadius, length(poreCell)))
+      * step(0.83, poreSeed) * smoothstep(0.72, 1.0, uSolidification);
+    basalt *= mix(1.0, 0.13, pore);
     color = mix(color, basalt, smoothstep(0.58, 1.0, uSolidification));
 
     float flickerAmount = 0.07 * (1.0 - uSolidification);
@@ -257,6 +290,9 @@ function makeLavaMaterial(usePbr = true, coolingOffset = 0) {
   uniforms.uLavaEmission.value = lavaEmission;
   uniforms.uLavaNormal.value = lavaNormal;
   uniforms.uLavaRoughness.value = lavaRoughness;
+  uniforms.uBasaltColor.value = basaltColor;
+  uniforms.uBasaltNormal.value = basaltNormal;
+  uniforms.uBasaltRoughness.value = basaltRoughness;
   uniforms.uUsePbr.value = usePbr ? 1 : 0;
   uniforms.uCoolingOffset.value = coolingOffset;
   uniforms.uSolidification.value = 0;
@@ -400,15 +436,15 @@ function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
 }
 
 const lavaMeshes = lavaFlows.map((points, index) => {
-  const widthMultiplier = 2.5;
+  const flowWidths = [3.6, 2.6, 5.0, 1.7];
   const baseWidth = index === 2 ? 0.82 : index === 3 ? 0.5 : 0.58;
   const coolingOffset = index === 3 ? branchIndex / frontFlow.length : 0;
-  const mesh = makeLavaRibbon(points, baseWidth * widthMultiplier, coolingOffset);
+  const mesh = makeLavaRibbon(points, baseWidth * flowWidths[index], coolingOffset);
   scene.add(mesh);
   return mesh;
 });
 
-const particleCount = 90;
+const particleCount = 64;
 const particleGeo = new THREE.BufferGeometry();
 const particlePositions = new Float32Array(particleCount * 3);
 const particleSeeds = [];
@@ -446,6 +482,56 @@ const smoke = new THREE.Points(
 );
 scene.add(smoke);
 
+const gasVentOrigins = [];
+lavaFlows.forEach((flow, flowIndex) => {
+  const fractions = flowIndex === 2 ? [0.18, 0.34, 0.52, 0.7, 0.84] : [0.28, 0.56, 0.78];
+  fractions.forEach((fraction) => {
+    const point = flow[Math.min(flow.length - 1, Math.floor(flow.length * fraction))];
+    gasVentOrigins.push(new THREE.Vector3(point.x, point.y + 0.32, point.z));
+  });
+});
+
+const gasParticleCount = 36;
+const gasGeometry = new THREE.BufferGeometry();
+const gasPositions = new Float32Array(gasParticleCount * 3);
+const gasSeeds = Array.from({ length: gasParticleCount }, (_, index) => ({
+  vent: gasVentOrigins[index % gasVentOrigins.length],
+  phase: Math.random(),
+  speed: 0.55 + Math.random() * 0.6,
+  drift: Math.random() * Math.PI * 2,
+}));
+gasGeometry.setAttribute("position", new THREE.BufferAttribute(gasPositions, 3));
+const gasParticles = new THREE.Points(
+  gasGeometry,
+  new THREE.PointsMaterial({
+    color: 0xd7c3aa,
+    map: smokeTexture,
+    alphaMap: smokeTexture,
+    size: 0.95,
+    transparent: true,
+    opacity: 0.66,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }),
+);
+scene.add(gasParticles);
+
+const bubbleGeometry = new THREE.BufferGeometry().setFromPoints(gasVentOrigins);
+const surfaceBubbles = new THREE.Points(
+  bubbleGeometry,
+  new THREE.PointsMaterial({
+    color: 0xffb24d,
+    map: smokeTexture,
+    alphaMap: smokeTexture,
+    size: 0.58,
+    transparent: true,
+    opacity: 0.86,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }),
+);
+scene.add(surfaceBubbles);
+
 let eruptionBoost = 1;
 let coolingTarget = new URLSearchParams(location.search).has("cooled") ? 1.35 : 0.68;
 let coolingProgress = new URLSearchParams(location.search).has("cooled") ? 1 : 0;
@@ -477,6 +563,26 @@ function updateSmoke(time) {
   particleGeo.attributes.position.needsUpdate = true;
 }
 
+function updateLavaGas(time, cooling) {
+  const arr = gasGeometry.attributes.position.array;
+  gasSeeds.forEach((seed, index) => {
+    const life = (time * seed.speed + seed.phase * 4.5) % 4.5;
+    const bubblePhase = Math.min(1, life / 0.55);
+    const rise = life < 0.55
+      ? Math.sin(bubblePhase * Math.PI) * 0.24
+      : 0.18 + (life - 0.55) * 0.72;
+    const spread = Math.max(0, life - 0.55) * 0.13;
+    arr[index * 3] = seed.vent.x + Math.cos(seed.drift) * spread;
+    arr[index * 3 + 1] = seed.vent.y + rise;
+    arr[index * 3 + 2] = seed.vent.z + Math.sin(seed.drift) * spread;
+  });
+  gasGeometry.attributes.position.needsUpdate = true;
+  gasParticles.material.opacity = 0.66 * (1 - cooling * 0.93);
+  gasParticles.material.size = 0.95 + Math.sin(time * 4.5) * 0.1 * (1 - cooling);
+  surfaceBubbles.material.opacity = 0.86 * (1 - cooling);
+  surfaceBubbles.material.size = 0.58 + Math.sin(time * 5.2) * 0.16 * (1 - cooling);
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const elapsed = clock.getElapsedTime();
@@ -491,6 +597,7 @@ function animate() {
     if (coolingProgress >= 1) coolingActive = false;
   }
   const easedCooling = THREE.MathUtils.smoothstep(coolingProgress, 0, 1);
+  updateLavaGas(elapsed, easedCooling);
   const animatedFlowSpeed = eruptionBoost * (1 - easedCooling * 0.98);
   visualFlowTime += delta * animatedFlowSpeed;
   coolingTarget = THREE.MathUtils.lerp(0.68, 1.55, easedCooling);

@@ -81,3 +81,33 @@ Roughness, and Emission maps.
 Poly Haven `Volcanic Rock Tiles` is CC0 and technically lightweight, but it is a
 man-made paving material made from volcanic rock. It is unsuitable for depicting
 natural flowing or cooling lava.
+
+## Basalt PBR research
+
+### Selected candidate: ambientCG Rock041
+
+- Source: https://ambientcg.com/view?id=Rock041
+- License: CC0
+- Creation method: height-field photogrammetry
+- Tags: black, rock, smooth
+- Runtime maps: Color, NormalGL, Roughness at 1K
+
+Rock031, Rock033, Rock035, and Rock037 were also reviewed. Those materials have
+large directional cliff layers and cracks. They would make tiling and stretching
+more visible on long lava ribbons. Rock041 has smaller, smoother surface detail
+and occasional natural-looking pits, so it works better as a cooled basalt layer.
+
+The downloaded package also includes displacement, ambient occlusion, NormalDX,
+Blender, MaterialX, Godot, and USD files. They are not used in the tablet runtime.
+Only the three maps above are kept in the project.
+
+### How it is applied
+
+The basalt texture is not visible while the lava is fully molten. During the
+last part of the cooling animation, the shader gradually blends Rock041 over the
+existing procedural lava and Lava002 crust. Normal and roughness maps are sampled
+as lightweight visual shading detail rather than using runtime displacement.
+
+Sparse pores are generated in the same shader from a repeatable hash pattern.
+This avoids adding many hole meshes and keeps the statement scientifically
+careful: basalt can have pores, but not every part of every basalt flow does.
