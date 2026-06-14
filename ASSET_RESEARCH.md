@@ -82,6 +82,18 @@ Poly Haven `Volcanic Rock Tiles` is CC0 and technically lightweight, but it is a
 man-made paving material made from volcanic rock. It is unsuitable for depicting
 natural flowing or cooling lava.
 
+### Added hot-lava candidate: ambientCG Lava004
+
+- Source: https://ambientcg.com/view?id=Lava004
+- License: CC0
+- Runtime maps: Color, Emission, NormalGL, Roughness at 1K
+- Use: the youngest, hottest part of a newly erupted flow
+
+Lava004 is brighter and more orange than Lava002. Its emission is deliberately
+reduced and tinted in the shader so it remains readable on tablet screens rather
+than clipping to flat red. As each point ages, Lava004 blends into the darker
+Lava002 crust and finally into Rock041 basalt.
+
 ## Basalt PBR research
 
 ### Selected candidate: ambientCG Rock041

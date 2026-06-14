@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const canvas = document.querySelector("#scene");
 const metrics = document.querySelector("#metrics");
@@ -11,8 +12,16 @@ const coolingMessage = document.querySelector("#cooling-message");
 const lessonCopy = document.querySelector("#lesson-copy");
 const lessonTitle = document.querySelector("#lesson-title");
 const eruptButton = document.querySelector("#erupt");
+const timeButton = document.querySelector("#cool");
 const isMobile = matchMedia("(max-width: 900px), (pointer: coarse)").matches;
 const maxPixelRatio = 1.25;
+
+eruptButton.textContent = "분출 시작하기";
+timeButton.textContent = "시간 빠르게 보기";
+coolingTitle.textContent = "분출 전";
+coolingMessage.textContent = "분출 시작하기를 누르면 화산이 폭발하고 용암이 흘러나옵니다.";
+lessonTitle.innerHTML = "화산 분출을<br>시작해 보세요";
+lessonCopy.textContent = "분출할 때마다 새로운 경로로 용암이 흐르고, 이전에 만들어진 현무암은 그대로 남습니다.";
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -77,6 +86,20 @@ lavaEmission.colorSpace = THREE.SRGBColorSpace;
 for (const texture of [lavaColor, lavaEmission, lavaNormal, lavaRoughness]) {
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(1.4, 3.8);
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+}
+
+const [hotLavaColor, hotLavaEmission, hotLavaNormal, hotLavaRoughness] = await Promise.all([
+  loader.loadAsync("./assets/lava004/Lava004_1K-JPG_Color.jpg"),
+  loader.loadAsync("./assets/lava004/Lava004_1K-JPG_Emission.jpg"),
+  loader.loadAsync("./assets/lava004/Lava004_1K-JPG_NormalGL.jpg"),
+  loader.loadAsync("./assets/lava004/Lava004_1K-JPG_Roughness.jpg"),
+]);
+hotLavaColor.colorSpace = THREE.SRGBColorSpace;
+hotLavaEmission.colorSpace = THREE.SRGBColorSpace;
+for (const texture of [hotLavaColor, hotLavaEmission, hotLavaNormal, hotLavaRoughness]) {
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.5, 4.2);
   texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 }
 
@@ -162,12 +185,17 @@ const lavaUniforms = {
   uLavaEmission: { value: lavaEmission },
   uLavaNormal: { value: lavaNormal },
   uLavaRoughness: { value: lavaRoughness },
+  uHotLavaColor: { value: hotLavaColor },
+  uHotLavaEmission: { value: hotLavaEmission },
+  uHotLavaNormal: { value: hotLavaNormal },
+  uHotLavaRoughness: { value: hotLavaRoughness },
   uBasaltColor: { value: basaltColor },
   uBasaltNormal: { value: basaltNormal },
   uBasaltRoughness: { value: basaltRoughness },
   uUsePbr: { value: 1 },
   uCoolingOffset: { value: 0 },
   uSolidification: { value: 0 },
+  uAge: { value: 30 },
 };
 
 const lavaVertexShader = `
@@ -188,12 +216,17 @@ const lavaFragmentShader = `
   uniform sampler2D uLavaEmission;
   uniform sampler2D uLavaNormal;
   uniform sampler2D uLavaRoughness;
+  uniform sampler2D uHotLavaColor;
+  uniform sampler2D uHotLavaEmission;
+  uniform sampler2D uHotLavaNormal;
+  uniform sampler2D uHotLavaRoughness;
   uniform sampler2D uBasaltColor;
   uniform sampler2D uBasaltNormal;
   uniform sampler2D uBasaltRoughness;
   uniform float uUsePbr;
   uniform float uCoolingOffset;
   uniform float uSolidification;
+  uniform float uAge;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -259,7 +292,20 @@ const lavaFragmentShader = `
     vec3 cooledTexture = pbrColor * mix(0.66, 1.08, textureRelief);
     cooledTexture *= mix(0.82, 1.05, 1.0 - roughnessMap);
     vec3 textureGlow = emissionMap * vec3(1.45, 0.38, 0.035) * (1.0 - uSolidification);
-    vec3 color = mix(procedural, cooledTexture + textureGlow, pbrBlend);
+    vec2 hotUv = vec2(vUv.x * 1.5, vUv.y * 4.2 - time * 0.07);
+    vec3 hotMap = texture2D(uHotLavaColor, hotUv).rgb;
+    vec3 hotEmission = texture2D(uHotLavaEmission, hotUv).rgb;
+    vec3 hotNormal = texture2D(uHotLavaNormal, hotUv).rgb;
+    float hotRoughness = texture2D(uHotLavaRoughness, hotUv).r;
+    float hotRelief = dot(hotNormal, vec3(0.2, 0.68, 0.12));
+    vec3 hotTexture = hotMap * mix(0.72, 1.08, hotRelief);
+    hotTexture = mix(hotTexture, vec3(1.0, 0.24, 0.015), 0.42);
+    hotTexture += hotEmission.r * vec3(1.0, 0.48, 0.045) * mix(0.72, 1.0, 1.0 - hotRoughness);
+
+    float localAge = max(0.0, uAge - vUv.y * 6.0);
+    float lava002Blend = smoothstep(3.0, 8.0, localAge);
+    float basaltBlend = smoothstep(11.0, 17.0, localAge);
+    vec3 color = mix(hotTexture, cooledTexture + textureGlow, lava002Blend);
     vec2 basaltUv = vec2(vUv.x * 1.8, vUv.y * 4.8);
     vec3 basaltMap = texture2D(uBasaltColor, basaltUv).rgb;
     vec3 basaltNormalDetail = texture2D(uBasaltNormal, basaltUv).rgb;
@@ -276,9 +322,9 @@ const lavaFragmentShader = `
     float pore = (1.0 - smoothstep(poreRadius * 0.62, poreRadius, length(poreCell)))
       * step(0.83, poreSeed) * smoothstep(0.72, 1.0, uSolidification);
     basalt *= mix(1.0, 0.13, pore);
-    color = mix(color, basalt, smoothstep(0.58, 1.0, uSolidification));
+    color = mix(color, basalt, basaltBlend);
 
-    float flickerAmount = 0.07 * (1.0 - uSolidification);
+    float flickerAmount = 0.07 * (1.0 - basaltBlend);
     float flicker = 0.93 + sin(time * 5.0 + broad * 11.0) * flickerAmount;
     gl_FragColor = vec4(color * flicker, 1.0);
   }
@@ -290,12 +336,17 @@ function makeLavaMaterial(usePbr = true, coolingOffset = 0) {
   uniforms.uLavaEmission.value = lavaEmission;
   uniforms.uLavaNormal.value = lavaNormal;
   uniforms.uLavaRoughness.value = lavaRoughness;
+  uniforms.uHotLavaColor.value = hotLavaColor;
+  uniforms.uHotLavaEmission.value = hotLavaEmission;
+  uniforms.uHotLavaNormal.value = hotLavaNormal;
+  uniforms.uHotLavaRoughness.value = hotLavaRoughness;
   uniforms.uBasaltColor.value = basaltColor;
   uniforms.uBasaltNormal.value = basaltNormal;
   uniforms.uBasaltRoughness.value = basaltRoughness;
   uniforms.uUsePbr.value = usePbr ? 1 : 0;
   uniforms.uCoolingOffset.value = coolingOffset;
   uniforms.uSolidification.value = 0;
+  uniforms.uAge.value = 30;
   return new THREE.ShaderMaterial({
     uniforms,
     vertexShader: lavaVertexShader,
@@ -371,29 +422,6 @@ function generateFlowPath(startAngle, seed, maxSteps = 48, widthScale = 1) {
   );
 }
 
-const frontFlow = generateFlowPath(-1.62, 8.3, 52, 1.1);
-const branchIndex = Math.min(22, frontFlow.length - 3);
-const branchOrigin = frontFlow[branchIndex];
-const branchPrevious = frontFlow[Math.max(0, branchIndex - 2)];
-const branchDirection = new THREE.Vector2(
-  branchOrigin.x - branchPrevious.x,
-  branchOrigin.z - branchPrevious.z,
-).normalize().rotateAround(new THREE.Vector2(0, 0), -0.72);
-
-const lavaFlows = [
-  generateFlowPath(0.72, 1.7, 50, 0.82),
-  generateFlowPath(2.52, 4.1, 46, 0.78),
-  frontFlow,
-  traceDownhillFlow(
-    branchOrigin.x,
-    branchOrigin.z,
-    branchDirection,
-    12.7,
-    24,
-    0.52,
-  ),
-];
-
 function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
   const vertices = [];
   const uvs = [];
@@ -432,17 +460,71 @@ function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+  geometry.userData.fullIndexCount = indices.length;
+  geometry.setDrawRange(0, 0);
   return new THREE.Mesh(geometry, makeLavaMaterial(true, coolingOffset));
 }
 
-const lavaMeshes = lavaFlows.map((points, index) => {
-  const flowWidths = [3.6, 2.6, 5.0, 1.7];
-  const baseWidth = index === 2 ? 0.82 : index === 3 ? 0.5 : 0.58;
-  const coolingOffset = index === 3 ? branchIndex / frontFlow.length : 0;
-  const mesh = makeLavaRibbon(points, baseWidth * flowWidths[index], coolingOffset);
-  scene.add(mesh);
-  return mesh;
-});
+const activeEruptions = [];
+let basaltArchive = null;
+let eruptionSerial = 0;
+const flowDuration = 7;
+const solidifyDuration = 18;
+const maxArchivedTriangles = 9000;
+
+function generateEruptionPaths() {
+  const count = 3 + Math.floor(Math.random() * 3);
+  const start = Math.random() * Math.PI * 2;
+  return Array.from({ length: count }, (_, index) => {
+    const angle = start + index * (Math.PI * 2 / count) + (Math.random() - 0.5) * 0.72;
+    const isMain = index === 0;
+    return {
+      points: generateFlowPath(
+        angle,
+        eruptionSerial * 17.3 + index * 4.9 + Math.random() * 10,
+        isMain ? 52 : 38 + Math.floor(Math.random() * 10),
+        isMain ? 1.08 : 0.68 + Math.random() * 0.25,
+      ),
+      width: isMain ? 2.25 + Math.random() * 0.55 : 0.82 + Math.random() * 0.58,
+    };
+  });
+}
+
+function beginEruption(time) {
+  eruptionSerial++;
+  const paths = generateEruptionPaths();
+  const meshes = paths.map(({ points, width }) => {
+    const mesh = makeLavaRibbon(points, width);
+    scene.add(mesh);
+    return mesh;
+  });
+  activeEruptions.push({ meshes, paths, startedAt: time, complete: false });
+  eruptButton.disabled = true;
+  eruptButton.textContent = "용암이 흐르는 중";
+  startExplosion(time);
+}
+
+function archiveEruption(eruption) {
+  const geometries = eruption.meshes.map((mesh) => mesh.geometry.clone());
+  if (basaltArchive) geometries.unshift(basaltArchive.geometry.clone());
+  const merged = mergeGeometries(geometries, false);
+  geometries.forEach((geometry) => geometry.dispose());
+  eruption.meshes.forEach((mesh) => {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  });
+  if (basaltArchive) {
+    scene.remove(basaltArchive);
+    basaltArchive.geometry.dispose();
+    basaltArchive.material.dispose();
+  }
+  merged.setDrawRange(0, merged.index ? merged.index.count : Infinity);
+  basaltArchive = new THREE.Mesh(merged, makeLavaMaterial(true));
+  basaltArchive.material.uniforms.uAge.value = 99;
+  basaltArchive.material.uniforms.uSolidification.value = 1;
+  scene.add(basaltArchive);
+}
 
 const particleCount = 64;
 const particleGeo = new THREE.BufferGeometry();
@@ -482,20 +564,11 @@ const smoke = new THREE.Points(
 );
 scene.add(smoke);
 
-const gasVentOrigins = [];
-lavaFlows.forEach((flow, flowIndex) => {
-  const fractions = flowIndex === 2 ? [0.18, 0.34, 0.52, 0.7, 0.84] : [0.28, 0.56, 0.78];
-  fractions.forEach((fraction) => {
-    const point = flow[Math.min(flow.length - 1, Math.floor(flow.length * fraction))];
-    gasVentOrigins.push(new THREE.Vector3(point.x, point.y + 0.32, point.z));
-  });
-});
-
 const gasParticleCount = 36;
 const gasGeometry = new THREE.BufferGeometry();
 const gasPositions = new Float32Array(gasParticleCount * 3);
 const gasSeeds = Array.from({ length: gasParticleCount }, (_, index) => ({
-  vent: gasVentOrigins[index % gasVentOrigins.length],
+  vent: new THREE.Vector3(0, 8.4, 0),
   phase: Math.random(),
   speed: 0.55 + Math.random() * 0.6,
   drift: Math.random() * Math.PI * 2,
@@ -516,7 +589,8 @@ const gasParticles = new THREE.Points(
 );
 scene.add(gasParticles);
 
-const bubbleGeometry = new THREE.BufferGeometry().setFromPoints(gasVentOrigins);
+const bubbleGeometry = new THREE.BufferGeometry();
+bubbleGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(gasParticleCount * 3), 3));
 const surfaceBubbles = new THREE.Points(
   bubbleGeometry,
   new THREE.PointsMaterial({
@@ -532,9 +606,51 @@ const surfaceBubbles = new THREE.Points(
 );
 scene.add(surfaceBubbles);
 
-let eruptionBoost = 1;
-let coolingTarget = new URLSearchParams(location.search).has("cooled") ? 1.35 : 0.68;
-let coolingProgress = new URLSearchParams(location.search).has("cooled") ? 1 : 0;
+const explosionCount = 48;
+const explosionGeometry = new THREE.BufferGeometry();
+const explosionPositions = new Float32Array(explosionCount * 3);
+const explosionSeeds = Array.from({ length: explosionCount }, () => ({
+  angle: Math.random() * Math.PI * 2,
+  outward: 1.4 + Math.random() * 4.2,
+  upward: 4 + Math.random() * 7,
+  delay: Math.random() * 0.45,
+}));
+explosionGeometry.setAttribute("position", new THREE.BufferAttribute(explosionPositions, 3));
+const explosion = new THREE.Points(
+  explosionGeometry,
+  new THREE.PointsMaterial({
+    color: 0xff5a1f,
+    map: smokeTexture,
+    alphaMap: smokeTexture,
+    size: 2.15,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }),
+);
+scene.add(explosion);
+const explosionFlash = new THREE.Mesh(
+  new THREE.SphereGeometry(0.8, 16, 10),
+  new THREE.MeshBasicMaterial({
+    color: 0xff7a24,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    toneMapped: false,
+  }),
+);
+explosionFlash.position.set(0, 12.8, 0);
+explosionFlash.visible = false;
+scene.add(explosionFlash);
+
+let eruptionBoost = 0.35;
+let timeScale = 1;
+let simulationTime = 0;
+let explosionStartedAt = -100;
+let coolingTarget = 0;
+const lavaMeshes = [];
+let coolingProgress = 0;
 let coolingActive = false;
 let coolingStartedAt = 0;
 const coolingDuration = 8;
@@ -550,6 +666,92 @@ let fps = 0;
 const clock = new THREE.Clock();
 let previousElapsed = 0;
 let visualFlowTime = 0;
+craterLava.visible = false;
+
+function startExplosion(time) {
+  explosionStartedAt = time;
+  eruptionBoost = 2.2;
+  craterLava.visible = true;
+  craterLava.material.uniforms.uAge.value = 0;
+}
+
+function updateExplosion(time) {
+  const age = time - explosionStartedAt;
+  const arr = explosionGeometry.attributes.position.array;
+  explosionSeeds.forEach((seed, index) => {
+    const life = Math.max(0, age - seed.delay);
+    const radius = life * seed.outward;
+    arr[index * 3] = Math.cos(seed.angle) * radius;
+    arr[index * 3 + 1] = 12.6 + life * seed.upward - life * life * 4.6;
+    arr[index * 3 + 2] = Math.sin(seed.angle) * radius;
+  });
+  explosionGeometry.attributes.position.needsUpdate = true;
+  explosion.material.opacity = age >= 0 && age < 2.1 ? Math.max(0, 1 - age / 2.1) : 0;
+  explosionFlash.visible = age >= 0 && age < 1.2;
+  explosionFlash.scale.setScalar(1 + Math.max(0, age) * 3.8);
+  explosionFlash.material.opacity = Math.max(0, 0.8 - age * 0.7);
+  if (age > 2.1) eruptionBoost = activeEruptions.length ? 1 : 0.35;
+}
+
+function refreshGasVents(reveal) {
+  const current = activeEruptions[0];
+  if (!current) return;
+  const candidates = [];
+  current.paths.forEach(({ points }) => {
+    [0.22, 0.42, 0.62, 0.8].forEach((fraction) => {
+      if (fraction > reveal) return;
+      const point = points[Math.min(points.length - 1, Math.floor(points.length * fraction))];
+      candidates.push(point);
+    });
+  });
+  if (!candidates.length) return;
+  const bubbleArr = bubbleGeometry.attributes.position.array;
+  gasSeeds.forEach((seed, index) => {
+    const point = candidates[index % candidates.length];
+    seed.vent.set(point.x, point.y + 0.32, point.z);
+    bubbleArr[index * 3] = seed.vent.x;
+    bubbleArr[index * 3 + 1] = seed.vent.y;
+    bubbleArr[index * 3 + 2] = seed.vent.z;
+  });
+  bubbleGeometry.attributes.position.needsUpdate = true;
+}
+
+function updateEruptions(time) {
+  const current = activeEruptions[0];
+  if (!current) return;
+  eruptButton.disabled = true;
+  const age = time - current.startedAt;
+  const reveal = THREE.MathUtils.clamp(age / flowDuration, 0, 1);
+  refreshGasVents(reveal);
+  current.meshes.forEach((mesh) => {
+    const fullCount = mesh.geometry.userData.fullIndexCount;
+    mesh.geometry.setDrawRange(0, Math.floor(fullCount * reveal / 6) * 6);
+    mesh.material.uniforms.uAge.value = age;
+    mesh.material.uniforms.uTime.value = visualFlowTime;
+    mesh.material.uniforms.uSolidification.value = THREE.MathUtils.clamp((age - 10) / 8, 0, 1);
+  });
+
+  const progress = THREE.MathUtils.clamp(age / solidifyDuration, 0, 1);
+  coolingBar.style.width = `${Math.round(progress * 100)}%`;
+  coolingPercent.textContent = `${Math.round(progress * 100)}%`;
+  coolingTitle.textContent = reveal < 1 ? "용암이 흘러가는 중" : "현무암으로 굳는 중";
+  coolingMessage.textContent = reveal < 1
+    ? "한 번 분출한 용암이 경사를 따라 아래로 흐르고 있어요."
+    : "먼저 흘러나온 용암부터 서서히 어두운 현무암으로 굳고 있어요.";
+  lessonTitle.innerHTML = reveal < 1 ? "용암이<br>흘러내려가고 있어요" : "용암이<br>현무암으로 굳고 있어요";
+
+  if (age >= solidifyDuration && !current.complete) {
+    current.complete = true;
+    archiveEruption(current);
+    activeEruptions.shift();
+    craterLava.visible = false;
+    eruptButton.disabled = false;
+    eruptButton.textContent = "다시 분출하기";
+    coolingTitle.textContent = "모든 용암이 굳었어요";
+    coolingMessage.textContent = "기존 현무암은 그대로 남아 있습니다. 다시 분출할 수 있어요.";
+    lessonTitle.innerHTML = "용암이<br>현무암이 되었어요";
+  }
+}
 
 function updateSmoke(time) {
   const arr = particleGeo.attributes.position.array;
@@ -564,6 +766,11 @@ function updateSmoke(time) {
 }
 
 function updateLavaGas(time, cooling) {
+  if (!activeEruptions.length) {
+    gasParticles.material.opacity = 0;
+    surfaceBubbles.material.opacity = 0;
+    return;
+  }
   const arr = gasGeometry.attributes.position.array;
   gasSeeds.forEach((seed, index) => {
     const life = (time * seed.speed + seed.phase * 4.5) % 4.5;
@@ -588,8 +795,10 @@ function animate() {
   const elapsed = clock.getElapsedTime();
   const delta = Math.min(0.05, Math.max(0, elapsed - previousElapsed));
   previousElapsed = elapsed;
+  simulationTime += delta * timeScale;
   controls.update();
-  updateSmoke(elapsed);
+  updateSmoke(simulationTime);
+  updateExplosion(simulationTime);
 
   const lavaSurfaces = [craterLava, ...lavaMeshes];
   if (coolingActive) {
@@ -636,6 +845,30 @@ function animate() {
     eruptButton.disabled = false;
   }
 
+  visualFlowTime += delta * timeScale;
+  updateEruptions(simulationTime);
+  if (!activeEruptions.length) {
+    gasParticles.material.opacity = 0;
+    surfaceBubbles.material.opacity = 0;
+    craterLava.visible = false;
+    const archivedTriangles = basaltArchive
+      ? (basaltArchive.geometry.index?.count || 0) / 3
+      : 0;
+    const atLimit = archivedTriangles >= maxArchivedTriangles;
+    eruptButton.disabled = atLimit;
+    eruptButton.textContent = atLimit
+      ? "화산 표면이 충분히 덮였어요"
+      : eruptionSerial > 0 ? "다시 분출하기" : "분출 시작하기";
+    coolingTitle.textContent = eruptionSerial > 0 ? "모든 용암이 굳었어요" : "분출 전";
+    coolingMessage.textContent = eruptionSerial > 0
+      ? "기존 현무암은 그대로 남아 있습니다. 다시 분출할 수 있어요."
+      : "분출 시작하기를 누르면 화산이 폭발하고 용암이 흘러나옵니다.";
+    lessonTitle.innerHTML = eruptionSerial > 0
+      ? "용암이<br>현무암이 되었어요"
+      : "화산 분출을<br>시작해 보세요";
+    coolingBar.style.width = eruptionSerial > 0 ? "100%" : "0%";
+    coolingPercent.textContent = eruptionSerial > 0 ? "100%" : "0%";
+  }
   renderer.render(scene, camera);
   frameCount++;
   const now = performance.now();
@@ -646,14 +879,29 @@ function animate() {
     lastMetricTime = now;
   }
 }
+const previewParams = new URLSearchParams(location.search);
+if (previewParams.has("fast")) timeScale = 3;
+if (previewParams.has("autoplay")) {
+  const previewAge = Number(previewParams.get("age") || 0);
+  beginEruption(-Math.max(0, previewAge));
+}
 animate();
 
 document.querySelector("#erupt").addEventListener("click", (event) => {
+  if (activeEruptions.length) return;
+  beginEruption(simulationTime);
+  coolingTitle.textContent = "분출이 시작됐어요";
+  coolingMessage.textContent = "폭발 뒤 유한한 양의 용암이 무작위 경로로 흘러나옵니다.";
+  lessonTitle.innerHTML = "화산이 폭발하며<br>용암이 나와요";
+  return;
   eruptionBoost = eruptionBoost === 1 ? 2.4 : 1;
   event.currentTarget.textContent = eruptionBoost > 1 ? "분출 평소대로 보기" : "분출 강하게 보기";
 });
 
 document.querySelector("#cool").addEventListener("click", (event) => {
+  timeScale = timeScale === 1 ? 3 : 1;
+  event.currentTarget.textContent = timeScale > 1 ? "보통 속도로 보기" : "시간 빠르게 보기";
+  return;
   if (coolingProgress >= 1) {
     coolingProgress = 0;
     coolingActive = false;

@@ -17,6 +17,8 @@ JavaScript modules and texture files loaded that way.
   - Source: https://polyhaven.com/a/gray_rocks
 - `assets/lava002/*`: ambientCG Lava002, CC0
   - Source: https://ambientcg.com/view?id=Lava002
+- `assets/lava004/*`: ambientCG Lava004, CC0
+  - Source: https://ambientcg.com/view?id=Lava004
 - `assets/basalt/*`: ambientCG Rock041, CC0
   - Source: https://ambientcg.com/view?id=Rock041
 
@@ -37,3 +39,9 @@ JavaScript modules and texture files loaded that way.
   draw calls. They fade as cooling completes.
 - At full cooling, Rock041 Color, NormalGL, and Roughness maps blend over the
   lava surface. A shader adds sparse pores without extra geometry.
+- The scene starts without lava. Each click creates one finite eruption with
+  3-5 newly calculated downhill paths.
+- Each point changes automatically from Lava004 to Lava002 and then Rock041
+  according to the time since lava reached that point.
+- Once an eruption fully solidifies, its meshes merge into one accumulated
+  basalt geometry. Existing basalt remains visible during later eruptions.
