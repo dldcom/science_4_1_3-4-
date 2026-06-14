@@ -36,6 +36,38 @@ button:disabled {
   touch-action: none;
 }
 
+.scene-tabs {
+  position: fixed;
+  z-index: 2;
+  top: max(20px, env(safe-area-inset-top));
+  left: 50%;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid #ffffff20;
+  border-radius: 16px;
+  background: #101212d9;
+  box-shadow: 0 12px 40px #0007;
+  backdrop-filter: blur(18px);
+}
+
+.scene-tab {
+  width: auto;
+  min-width: 104px;
+  margin: 0;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: transparent;
+  color: #bdb4ac;
+  font-size: 13px;
+}
+
+.scene-tab.active {
+  background: #ff6939;
+  color: #180a05;
+}
+
 .intro {
   position: fixed;
   top: max(24px, env(safe-area-inset-top));
@@ -194,6 +226,20 @@ button.secondary {
 }
 
 @media (max-width: 700px) {
+  .scene-tabs {
+    top: max(12px, env(safe-area-inset-top));
+  }
+
+  .scene-tab {
+    min-width: 92px;
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+
+  .intro {
+    top: 72px;
+  }
+
   .intro > p:last-child {
     display: none;
   }

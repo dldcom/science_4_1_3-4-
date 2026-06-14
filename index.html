@@ -10,6 +10,11 @@
   <main id="app">
     <canvas id="scene" aria-label="3D 화산 장면"></canvas>
 
+    <nav class="scene-tabs" aria-label="관찰 장면 선택">
+      <button type="button" class="scene-tab active" data-scene="surface" aria-pressed="true">지표 보기</button>
+      <button type="button" class="scene-tab" data-scene="underground" aria-pressed="false">지하로 이동</button>
+    </nav>
+
     <section class="intro">
       <p class="eyebrow">3D VOLCANO LAB</p>
       <h1 id="lesson-title">마그마가<br>지표로 나오고 있어요</h1>
@@ -30,7 +35,7 @@
     <aside class="controls" aria-label="화산 장면 조작">
       <div class="status">
         <span class="pulse"></span>
-        <span>화산 활동 관찰 중</span>
+        <span id="status-text">화산 활동 관찰 중</span>
       </div>
       <button id="erupt" type="button">분출 강하게 보기</button>
       <button id="cool" type="button">빠르게 식히기</button>

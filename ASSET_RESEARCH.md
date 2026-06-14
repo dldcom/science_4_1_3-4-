@@ -123,3 +123,16 @@ as lightweight visual shading detail rather than using runtime displacement.
 Sparse pores are generated in the same shader from a repeatable hash pattern.
 This avoids adding many hole meshes and keeps the statement scientifically
 careful: basalt can have pores, but not every part of every basalt flow does.
+
+## Granite PBR research
+
+### Selected candidate: ambientCG Granite002B
+
+- Source: https://ambientcg.com/view?id=Granite002B
+- License: CC0
+- Runtime maps: Color, NormalGL, Roughness at 1K
+- Use: the completed underground granite body after mineral grains grow and interlock
+
+The material clearly shows a light crystalline groundmass with many small dark
+mineral grains. During the last part of slow cooling, the separate teaching
+grains sink into the magma body while this PBR material fades in.

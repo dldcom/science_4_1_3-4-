@@ -11,8 +11,11 @@ const coolingTitle = document.querySelector("#cooling-title");
 const coolingMessage = document.querySelector("#cooling-message");
 const lessonCopy = document.querySelector("#lesson-copy");
 const lessonTitle = document.querySelector("#lesson-title");
+const statusText = document.querySelector("#status-text");
 const eruptButton = document.querySelector("#erupt");
 const timeButton = document.querySelector("#cool");
+const resetButton = document.querySelector("#reset");
+const sceneTabs = [...document.querySelectorAll(".scene-tab")];
 const isMobile = matchMedia("(max-width: 900px), (pointer: coarse)").matches;
 const maxPixelRatio = 1.25;
 
@@ -115,6 +118,18 @@ for (const texture of [basaltColor, basaltNormal, basaltRoughness]) {
   texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 }
 
+const [graniteColor, graniteNormal, graniteRoughness] = await Promise.all([
+  loader.loadAsync("./assets/granite/Granite002B_1K-JPG_Color.jpg"),
+  loader.loadAsync("./assets/granite/Granite002B_1K-JPG_NormalGL.jpg"),
+  loader.loadAsync("./assets/granite/Granite002B_1K-JPG_Roughness.jpg"),
+]);
+graniteColor.colorSpace = THREE.SRGBColorSpace;
+for (const texture of [graniteColor, graniteNormal, graniteRoughness]) {
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.8, 1.8);
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+}
+
 function hashNoise(x, z) {
   const value = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
   return value - Math.floor(value);
@@ -201,9 +216,36 @@ const lavaUniforms = {
 
 const lavaVertexShader = `
   varying vec2 vUv;
+  uniform float uUsePbr;
+  uniform float uAge;
+
+  float vertexHash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+
+  float vertexNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(vertexHash(i), vertexHash(i + vec2(1.0, 0.0)), f.x),
+      mix(vertexHash(i + vec2(0.0, 1.0)), vertexHash(i + vec2(1.0, 1.0)), f.x),
+      f.y
+    );
+  }
+
   void main() {
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    float localAge = max(0.0, uAge + vUv.y * 3.0);
+    float basaltBlend = smoothstep(11.0, 17.0, localAge) * uUsePbr;
+    float broadRock = vertexNoise(vec2(vUv.x * 5.5, vUv.y * 24.0));
+    float sharpRock = vertexNoise(vec2(vUv.x * 13.0 + 8.2, vUv.y * 52.0));
+    float edgeLift = smoothstep(0.18, 0.48, abs(vUv.x - 0.5));
+    float rockHeight = (broadRock - 0.38) * 0.62 + (sharpRock - 0.5) * 0.18 + edgeLift * 0.12;
+    vec3 displaced = position + normal * rockHeight * basaltBlend;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
 `;
 
@@ -313,11 +355,12 @@ const lavaFragmentShader = `
     vec3 color = mix(hotTexture, cooledTexture + textureGlow, lava002Blend);
     vec2 basaltUv = vec2(vUv.x * 1.8, vUv.y * 4.8);
     vec3 basaltMap = texture2D(uBasaltColor, basaltUv).rgb;
-    vec3 basaltNormalDetail = texture2D(uBasaltNormal, basaltUv).rgb;
+    vec3 basaltNormalDetail = texture2D(uBasaltNormal, basaltUv).rgb * 2.0 - 1.0;
     float basaltRoughnessMap = texture2D(uBasaltRoughness, basaltUv).r;
-    float basaltRelief = dot(basaltNormalDetail, vec3(0.2, 0.68, 0.12));
-    vec3 basalt = mix(vec3(0.055), basaltMap, 0.9) * mix(0.82, 1.24, basaltRelief);
-    basalt *= mix(0.94, 1.12, 1.0 - basaltRoughnessMap);
+    float basaltRelief = dot(normalize(basaltNormalDetail), normalize(vec3(-0.45, 0.72, 0.38)));
+    float basaltRockShape = fbm(basaltUv * vec2(1.9, 1.35) + vec2(14.3, 6.8));
+    vec3 basalt = mix(vec3(0.042), basaltMap, 0.92) * mix(0.68, 1.32, basaltRelief * 0.5 + 0.5);
+    basalt *= mix(0.82, 1.18, basaltRockShape) * mix(0.9, 1.1, 1.0 - basaltRoughnessMap);
 
     // A few gas bubbles leave dark pores after solidification.
     vec2 poreGrid = floor(basaltUv * vec2(4.0, 2.4));
@@ -432,6 +475,7 @@ function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
   const vertices = [];
   const uvs = [];
   const indices = [];
+  const widthSegments = isMobile ? 4 : 6;
   for (let i = 0; i < samples.length; i++) {
     const current = samples[i];
     const previous = samples[Math.max(0, i - 1)];
@@ -451,14 +495,25 @@ function makeLavaRibbon(samples, baseWidth, coolingOffset = 0) {
     const leftZ = current.z + side.y * leftWidth;
     const rightX = current.x - side.x * rightWidth;
     const rightZ = current.z - side.y * rightWidth;
-    vertices.push(
-      leftX, terrainHeight(leftX, leftZ) + 0.16, leftZ,
-      rightX, terrainHeight(rightX, rightZ) + 0.16, rightZ,
-    );
-    uvs.push(0, progress, 1, progress);
+    for (let cross = 0; cross <= widthSegments; cross++) {
+      const across = cross / widthSegments;
+      const x = THREE.MathUtils.lerp(leftX, rightX, across);
+      const z = THREE.MathUtils.lerp(leftZ, rightZ, across);
+      const centerCrown = Math.sin(across * Math.PI) * baseWidth * 0.075;
+      vertices.push(x, terrainHeight(x, z) + 0.16 + centerCrown, z);
+      uvs.push(across, progress);
+    }
     if (i < samples.length - 1) {
-      const base = i * 2;
-      indices.push(base, base + 2, base + 1, base + 2, base + 3, base + 1);
+      const row = widthSegments + 1;
+      const base = i * row;
+      for (let cross = 0; cross < widthSegments; cross++) {
+        const currentLeft = base + cross;
+        const nextLeft = currentLeft + row;
+        indices.push(
+          currentLeft, nextLeft, currentLeft + 1,
+          nextLeft, nextLeft + 1, currentLeft + 1,
+        );
+      }
     }
   }
   const geometry = new THREE.BufferGeometry();
@@ -477,7 +532,7 @@ let eruptionSerial = 0;
 const flowDuration = 7;
 const coolingDurationAfterArrival = 18;
 const solidifyDuration = flowDuration + coolingDurationAfterArrival;
-const maxArchivedTriangles = 9000;
+const maxArchivedTriangles = 28000;
 
 function generateEruptionPaths() {
   const count = 3 + Math.floor(Math.random() * 3);
@@ -652,9 +707,265 @@ explosionFlash.position.set(0, 12.8, 0);
 explosionFlash.visible = false;
 scene.add(explosionFlash);
 
+const underground = new THREE.Group();
+scene.add(underground);
+
+const undergroundFill = new THREE.HemisphereLight(0xb39b86, 0x120b08, 1.25);
+underground.add(undergroundFill);
+const undergroundKey = new THREE.DirectionalLight(0xffd0a8, 2.6);
+undergroundKey.position.set(-14, -2, 24);
+underground.add(undergroundKey);
+
+const sectionMaterial = new THREE.MeshStandardMaterial({
+  map: rockColor,
+  normalMap: rockNormal,
+  normalScale: new THREE.Vector2(1.45, 1.45),
+  roughnessMap: rockRough,
+  color: 0x3a312d,
+  roughness: 0.95,
+});
+
+const cutawayGeometry = new THREE.PlaneGeometry(58, 42, 36, 28);
+const cutawayPositions = cutawayGeometry.attributes.position;
+for (let index = 0; index < cutawayPositions.count; index++) {
+  const x = cutawayPositions.getX(index);
+  const y = cutawayPositions.getY(index);
+  cutawayPositions.setZ(index, smoothNoise(x * 0.42 + 31, y * 0.42 - 17) * 1.05);
+}
+cutawayGeometry.computeVertexNormals();
+const cutawayWall = new THREE.Mesh(cutawayGeometry, sectionMaterial);
+cutawayWall.position.set(0, -24, -8.5);
+underground.add(cutawayWall);
+
+const roofGeometry = new THREE.BoxGeometry(58, 4.5, 18, 24, 2, 8);
+const roofPositions = roofGeometry.attributes.position;
+for (let index = 0; index < roofPositions.count; index++) {
+  roofPositions.setY(
+    index,
+    roofPositions.getY(index) + smoothNoise(roofPositions.getX(index) * 0.32, roofPositions.getZ(index) * 0.32) * 0.7,
+  );
+}
+roofGeometry.computeVertexNormals();
+const rockRoof = new THREE.Mesh(roofGeometry, sectionMaterial);
+rockRoof.position.set(0, -4.5, -1.5);
+underground.add(rockRoof);
+
+function makeIrregularBlob(radius, detail, material, seed, scale) {
+  const geometry = new THREE.IcosahedronGeometry(radius, detail);
+  const positions = geometry.attributes.position;
+  const vertex = new THREE.Vector3();
+  for (let index = 0; index < positions.count; index++) {
+    vertex.fromBufferAttribute(positions, index);
+    const direction = vertex.clone().normalize();
+    const variation = 0.82 + smoothNoise(
+      direction.x * 3.1 + seed,
+      direction.y * 3.1 - seed * 0.7 + direction.z,
+    ) * 0.22;
+    vertex.copy(direction.multiplyScalar(radius * variation));
+    positions.setXYZ(index, vertex.x, vertex.y, vertex.z);
+  }
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.scale.copy(scale);
+  return mesh;
+}
+
+function makeMagmaBody(radius, material, seed, scale) {
+  const geometry = new THREE.SphereGeometry(radius, 48, 30);
+  const positions = geometry.attributes.position;
+  const vertex = new THREE.Vector3();
+  for (let index = 0; index < positions.count; index++) {
+    vertex.fromBufferAttribute(positions, index);
+    const direction = vertex.clone().normalize();
+    const variation = 0.84 + smoothNoise(
+      direction.x * 3.4 + seed,
+      direction.y * 3.4 - seed * 0.7 + direction.z,
+    ) * 0.2;
+    vertex.copy(direction.multiplyScalar(radius * variation));
+    positions.setXYZ(index, vertex.x, vertex.y, vertex.z);
+  }
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.scale.copy(scale);
+  return mesh;
+}
+
+const chamberMaterial = new THREE.MeshStandardMaterial({
+  normalMap: hotLavaNormal,
+  normalScale: new THREE.Vector2(1.35, 1.35),
+  roughnessMap: hotLavaRoughness,
+  color: 0x672310,
+  emissive: 0xff2608,
+  emissiveIntensity: 0.42,
+  roughness: 0.82,
+});
+const chamberBodyMaterial = chamberMaterial.clone();
+chamberBodyMaterial.transparent = true;
+const graniteMaterial = new THREE.MeshStandardMaterial({
+  map: graniteColor,
+  normalMap: graniteNormal,
+  normalScale: new THREE.Vector2(1.25, 1.25),
+  roughnessMap: graniteRoughness,
+  color: 0xd2c5b7,
+  roughness: 0.82,
+  transparent: true,
+  opacity: 0,
+  polygonOffset: true,
+  polygonOffsetFactor: -1,
+});
+const intrusionMaterial = new THREE.MeshStandardMaterial({
+  color: 0x4f1d16,
+  emissive: 0xa6230c,
+  emissiveIntensity: 0.28,
+  roughness: 0.9,
+});
+const magmaChamber = makeMagmaBody(6.4, chamberBodyMaterial, 18.7, new THREE.Vector3(1.5, 0.76, 0.62));
+magmaChamber.position.set(1.5, -27, 0.5);
+underground.add(magmaChamber);
+const chamberBaseScale = magmaChamber.scale.clone();
+const graniteChamber = new THREE.Mesh(magmaChamber.geometry, graniteMaterial);
+graniteChamber.position.copy(magmaChamber.position);
+graniteChamber.scale.copy(chamberBaseScale);
+underground.add(graniteChamber);
+
+const conduitCurve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(1.5, -23.5, 0),
+  new THREE.Vector3(-1.2, -19, -0.4),
+  new THREE.Vector3(1.1, -14.5, 0.1),
+  new THREE.Vector3(-0.5, -9.5, -0.6),
+  new THREE.Vector3(0, -5.2, -0.2),
+]);
+const conduit = new THREE.Mesh(
+  new THREE.TubeGeometry(conduitCurve, 72, 0.48, 12, false),
+  chamberMaterial,
+);
+underground.add(conduit);
+
+const dikeCurves = [
+  [new THREE.Vector3(-0.4, -17, -1), new THREE.Vector3(-8, -13.5, -2), new THREE.Vector3(-15, -10.5, -2.8)],
+  [new THREE.Vector3(0.8, -14, -1), new THREE.Vector3(8, -11.8, -2), new THREE.Vector3(15, -8.5, -3)],
+  [new THREE.Vector3(3.5, -25, -1), new THREE.Vector3(11, -22.5, -2), new THREE.Vector3(18, -20, -3)],
+];
+dikeCurves.forEach((points, index) => {
+  const dike = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 36, 0.1 + index * 0.025, 6, false),
+    intrusionMaterial,
+  );
+  underground.add(dike);
+});
+
+const chamberLight = new THREE.PointLight(0xff4b16, 6, 28, 1.8);
+chamberLight.position.set(1.5, -25, 5);
+underground.add(chamberLight);
+
+const convectionCount = 22;
+const convectionGeometry = new THREE.BufferGeometry();
+const convectionPositions = new Float32Array(convectionCount * 3);
+convectionGeometry.setAttribute("position", new THREE.BufferAttribute(convectionPositions, 3));
+const convectionSeeds = Array.from({ length: convectionCount }, (_, index) => ({
+  angle: index / convectionCount * Math.PI * 2,
+  radius: 1.6 + (index % 6) * 0.72,
+  speed: 0.12 + (index % 5) * 0.018,
+  depth: 3.2 + (index % 4) * 0.15,
+}));
+const magmaConvection = new THREE.Points(
+  convectionGeometry,
+  new THREE.PointsMaterial({
+    color: 0xffa15a,
+    map: smokeTexture,
+    alphaMap: smokeTexture,
+    size: 0.62,
+    transparent: true,
+    opacity: 0.44,
+    depthWrite: false,
+    sizeAttenuation: true,
+    blending: THREE.AdditiveBlending,
+  }),
+);
+underground.add(magmaConvection);
+
+const grainGeometry = new THREE.IcosahedronGeometry(1, 1);
+const grainMaterials = [
+  new THREE.MeshStandardMaterial({
+    color: 0x9ba7a5,
+    emissive: 0x263b42,
+    emissiveIntensity: 0.08,
+    roughness: 0.46,
+  }),
+  new THREE.MeshStandardMaterial({
+    color: 0xb77d78,
+    emissive: 0x4a151d,
+    emissiveIntensity: 0.08,
+    roughness: 0.58,
+  }),
+  new THREE.MeshStandardMaterial({ color: 0x262124, roughness: 0.8 }),
+];
+const grainCount = 210;
+const grainMeshes = grainMaterials.map((material) => {
+  const mesh = new THREE.InstancedMesh(grainGeometry, material, grainCount);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  underground.add(mesh);
+  return mesh;
+});
+const grainSeeds = [];
+const grainDummy = new THREE.Object3D();
+const grainTypeCounts = [0, 0, 0];
+const chamberPositions = magmaChamber.geometry.attributes.position;
+const chamberNormals = magmaChamber.geometry.attributes.normal;
+const surfaceCandidates = [];
+for (let index = 0; index < chamberPositions.count; index++) {
+  if (chamberNormals.getZ(index) > 0.18) surfaceCandidates.push(index);
+}
+for (let index = 0; index < grainCount; index++) {
+  const candidateIndex = surfaceCandidates[
+    (index * 47 + Math.floor(hashNoise(index * 2.37 + 11, index * 0.91 - 7) * 23))
+      % surfaceCandidates.length
+  ];
+  const localPosition = new THREE.Vector3().fromBufferAttribute(chamberPositions, candidateIndex);
+  const localNormal = new THREE.Vector3().fromBufferAttribute(chamberNormals, candidateIndex);
+  const surfacePosition = localPosition.multiply(chamberBaseScale).add(magmaChamber.position);
+  const surfaceNormal = localNormal.divide(chamberBaseScale).normalize();
+  const typeSeed = hashNoise(index * 1.41 + 5, index * 0.67 - 19);
+  const type = typeSeed < 0.42 ? 0 : typeSeed < 0.88 ? 1 : 2;
+  const instanceIndex = grainTypeCounts[type]++;
+  const sizeNoise = hashNoise(index * 0.52 + 8, index * 1.83 + 2);
+  grainSeeds.push({
+    type,
+    instanceIndex,
+    delay: hashNoise(index * 0.43 + 3, index * 1.29 + 17) * 0.56,
+    position: surfacePosition,
+    normal: surfaceNormal,
+    twist: hashNoise(index * 0.83 + 7, index * 1.31 - 5) * Math.PI * 2,
+    scale: new THREE.Vector3(
+      THREE.MathUtils.lerp(0.14, type === 2 ? 0.28 : 0.42, sizeNoise),
+      THREE.MathUtils.lerp(0.12, type === 2 ? 0.24 : 0.36, 1 - sizeNoise * 0.55),
+      THREE.MathUtils.lerp(0.025, 0.06, sizeNoise),
+    ),
+  });
+}
+grainMeshes.forEach((mesh, type) => {
+  mesh.count = grainTypeCounts[type];
+});
+grainSeeds.forEach((grain) => {
+  grainDummy.position.copy(grain.position).addScaledVector(grain.normal, -0.015);
+  grainDummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), grain.normal);
+  grainDummy.rotateZ(grain.twist);
+  grainDummy.scale.setScalar(0.001);
+  grainDummy.updateMatrix();
+  grainMeshes[grain.type].setMatrixAt(grain.instanceIndex, grainDummy.matrix);
+});
+grainMeshes.forEach((mesh) => {
+  mesh.instanceMatrix.needsUpdate = true;
+});
+underground.traverse((object) => object.layers.set(1));
+
 let eruptionBoost = 0.35;
 let timeScale = 1;
 let simulationTime = 0;
+let viewMode = "surface";
+let viewTransition = null;
+let graniteGrowth = 0;
+let graniteGrowing = false;
 let explosionStartedAt = -100;
 let coolingTarget = 0;
 const lavaMeshes = [];
@@ -804,12 +1115,199 @@ function updateLavaGas(time, cooling) {
   surfaceBubbles.material.size = 0.58 + Math.sin(time * 5.2) * 0.16 * (1 - cooling);
 }
 
+function setViewMode(mode, immediate = false) {
+  if (!immediate && (viewTransition || mode === viewMode)) return;
+  if (!immediate) {
+    const goingUnderground = mode === "underground";
+    viewTransition = {
+      target: mode,
+      startedAt: clock.getElapsedTime(),
+      duration: 4.2,
+      fromPosition: camera.position.clone(),
+      fromTarget: controls.target.clone(),
+      curve: new THREE.CatmullRomCurve3(goingUnderground
+        ? [
+          camera.position.clone(),
+          new THREE.Vector3(26, 13, 34),
+          new THREE.Vector3(17, -3, 38),
+          new THREE.Vector3(8, -13, 42),
+          new THREE.Vector3(0, -19, 44),
+        ]
+        : [
+          camera.position.clone(),
+          new THREE.Vector3(8, -13, 42),
+          new THREE.Vector3(17, -3, 38),
+          new THREE.Vector3(26, 13, 34),
+          new THREE.Vector3(36, 27, 39),
+        ]),
+      targetEnd: new THREE.Vector3(0, goingUnderground ? -20 : 4, 0),
+    };
+    camera.layers.enableAll();
+    controls.enabled = false;
+    sceneTabs.forEach((tab) => {
+      tab.disabled = true;
+    });
+    eruptButton.disabled = true;
+    timeButton.disabled = true;
+    resetButton.disabled = true;
+    statusText.textContent = goingUnderground ? "화산 아래로 이동 중" : "지표로 이동 중";
+    lessonTitle.innerHTML = goingUnderground ? "화산 아래로<br>내려가고 있어요" : "다시 지표로<br>올라가고 있어요";
+    lessonCopy.textContent = "화산 내부는 대부분 단단한 암석이며, 마그마는 균열과 통로를 따라 이동합니다.";
+    return;
+  }
+
+  viewMode = mode;
+  const showSurface = mode === "surface";
+  camera.layers.set(showSurface ? 0 : 1);
+  sceneTabs.forEach((tab) => {
+    const active = tab.dataset.scene === mode;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-pressed", active);
+    tab.textContent = tab.dataset.scene === "surface"
+      ? showSurface ? "지표 보기" : "지표로 이동"
+      : showSurface ? "지하로 이동" : "지하 보기";
+  });
+  statusText.textContent = showSurface ? "화산 활동 관찰 중" : "지하 마그마 관찰 중";
+  scene.background.set(showSurface ? 0x090b0c : 0x160f0c);
+  scene.fog.color.set(showSurface ? 0x111313 : 0x241712);
+  if (showSurface) {
+    camera.position.set(36, 27, 39);
+    controls.target.set(0, 4, 0);
+    controls.minDistance = 24;
+  } else {
+    camera.position.set(0, -19, 44);
+    controls.target.set(0, -20, 0);
+    controls.minDistance = 30;
+    eruptButton.disabled = false;
+  }
+  controls.update();
+}
+
+function finishViewTransition() {
+  const targetMode = viewTransition.target;
+  viewTransition = null;
+  viewMode = targetMode;
+  const showSurface = targetMode === "surface";
+  camera.layers.set(showSurface ? 0 : 1);
+  controls.enabled = true;
+  timeButton.disabled = false;
+  resetButton.disabled = false;
+  controls.minDistance = showSurface ? 24 : 30;
+  controls.maxDistance = showSurface ? 78 : 68;
+  sceneTabs.forEach((tab) => {
+    tab.disabled = false;
+    const active = tab.dataset.scene === targetMode;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-pressed", active);
+    tab.textContent = tab.dataset.scene === "surface"
+      ? showSurface ? "지표 보기" : "지표로 이동"
+      : showSurface ? "지하로 이동" : "지하 보기";
+  });
+  statusText.textContent = showSurface ? "화산 활동 관찰 중" : "지하 마그마 관찰 중";
+  if (!showSurface) updateGranite(0);
+}
+
+function updateViewTransition(elapsed) {
+  if (!viewTransition) return;
+  const raw = THREE.MathUtils.clamp(
+    (elapsed - viewTransition.startedAt) / viewTransition.duration,
+    0,
+    1,
+  );
+  const progress = THREE.MathUtils.smootherstep(raw, 0, 1);
+  camera.position.copy(viewTransition.curve.getPoint(progress));
+  controls.target.lerpVectors(viewTransition.fromTarget, viewTransition.targetEnd, progress);
+  scene.background.lerpColors(
+    new THREE.Color(viewTransition.target === "underground" ? 0x090b0c : 0x160f0c),
+    new THREE.Color(viewTransition.target === "underground" ? 0x160f0c : 0x090b0c),
+    progress,
+  );
+  scene.fog.color.copy(scene.background);
+  if (raw >= 1) finishViewTransition();
+}
+
+function updateGranite(delta) {
+  if (graniteGrowing) graniteGrowth = Math.min(1, graniteGrowth + delta * timeScale / 18);
+  if (graniteGrowth >= 1) graniteGrowing = false;
+  const eased = THREE.MathUtils.smoothstep(graniteGrowth, 0, 1);
+  const graniteBlend = THREE.MathUtils.smoothstep(eased, 0.72, 1);
+  grainSeeds.forEach((grain) => {
+    const delayed = THREE.MathUtils.smoothstep(eased, grain.delay, Math.min(1, grain.delay + 0.38));
+    const absorbed = THREE.MathUtils.smoothstep(eased, 0.76, 1);
+    grainDummy.position.copy(grain.position).addScaledVector(
+      grain.normal,
+      THREE.MathUtils.lerp(-0.015, -0.18, absorbed),
+    );
+    grainDummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), grain.normal);
+    grainDummy.rotateZ(grain.twist);
+    grainDummy.scale.copy(grain.scale).multiplyScalar(
+      Math.max(0.001, delayed * THREE.MathUtils.lerp(1, 0.24, absorbed)),
+    );
+    grainDummy.updateMatrix();
+    grainMeshes[grain.type].setMatrixAt(grain.instanceIndex, grainDummy.matrix);
+  });
+  grainMeshes.forEach((mesh) => {
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+  chamberBodyMaterial.color.setRGB(
+    THREE.MathUtils.lerp(0.4, 0.5, eased),
+    THREE.MathUtils.lerp(0.14, 0.46, eased),
+    THREE.MathUtils.lerp(0.06, 0.43, eased),
+  );
+  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.42, 0.015, eased);
+  chamberBodyMaterial.opacity = 1 - graniteBlend;
+  graniteMaterial.opacity = graniteBlend;
+  graniteMaterial.color.setRGB(
+    THREE.MathUtils.lerp(0.78, 1, graniteBlend),
+    THREE.MathUtils.lerp(0.72, 1, graniteBlend),
+    THREE.MathUtils.lerp(0.68, 1, graniteBlend),
+  );
+  chamberLight.intensity = THREE.MathUtils.lerp(6, 1.5, eased);
+
+  const percent = Math.round(graniteGrowth * 100);
+  coolingBar.style.width = `${percent}%`;
+  coolingPercent.textContent = `${percent}%`;
+  coolingTitle.textContent = graniteGrowth >= 1 ? "화강암 생성 완료" : graniteGrowth > 0 ? "결정이 천천히 자라는 중" : "지하의 마그마";
+  coolingMessage.textContent = graniteGrowth >= 1
+    ? "작은 광물 알갱이들이 자라고 서로 맞물려 화강암이 되었습니다."
+    : "회색 석영, 분홍 장석, 검은 흑운모 알갱이가 천천히 자라며 암석 속에 박힙니다.";
+  lessonTitle.innerHTML = graniteGrowth >= 1
+    ? "마그마가<br>화강암이 되었어요"
+    : graniteGrowth > 0 ? "광물 결정이<br>천천히 자라고 있어요" : "지하의 마그마를<br>관찰해 보세요";
+  lessonCopy.textContent = "현무암은 지표에서 빠르게, 화강암은 지하에서 천천히 식어 만들어집니다.";
+  eruptButton.textContent = graniteGrowth >= 1 ? "결정 성장 다시 보기" : graniteGrowing ? "결정 성장 관찰 중" : "결정 성장 시작하기";
+  eruptButton.disabled = graniteGrowing;
+}
+
+function updateUnderground(time) {
+  const cooling = THREE.MathUtils.smoothstep(graniteGrowth, 0, 1);
+  const pulse = 1 + Math.sin(time * 0.85) * 0.018 * (1 - cooling);
+  magmaChamber.scale.copy(chamberBaseScale).multiplyScalar(pulse);
+  magmaChamber.rotation.y = Math.sin(time * 0.18) * 0.035;
+  graniteChamber.scale.copy(magmaChamber.scale);
+  graniteChamber.rotation.copy(magmaChamber.rotation);
+  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.42, 0.015, cooling)
+    + Math.sin(time * 1.15) * 0.04 * (1 - cooling);
+  chamberLight.intensity = THREE.MathUtils.lerp(6, 1.5, cooling)
+    + Math.sin(time * 0.9) * 0.5 * (1 - cooling);
+  const positions = convectionGeometry.attributes.position.array;
+  convectionSeeds.forEach((seed, index) => {
+    const angle = seed.angle + time * seed.speed;
+    positions[index * 3] = 1.5 + Math.cos(angle) * seed.radius * 1.35;
+    positions[index * 3 + 1] = -27 + Math.sin(angle) * seed.radius * 0.58;
+    positions[index * 3 + 2] = seed.depth;
+  });
+  convectionGeometry.attributes.position.needsUpdate = true;
+  magmaConvection.material.opacity = 0.44 * (1 - cooling);
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const elapsed = clock.getElapsedTime();
   const delta = Math.min(0.05, Math.max(0, elapsed - previousElapsed));
   previousElapsed = elapsed;
   simulationTime += delta * timeScale;
+  updateViewTransition(elapsed);
   controls.update();
   updateSmoke(simulationTime);
   updateExplosion(simulationTime);
@@ -883,6 +1381,13 @@ function animate() {
     coolingBar.style.width = eruptionSerial > 0 ? "100%" : "0%";
     coolingPercent.textContent = eruptionSerial > 0 ? "100%" : "0%";
   }
+  if (viewMode === "underground") updateGranite(delta);
+  updateUnderground(elapsed);
+  if (viewTransition) {
+    const goingUnderground = viewTransition.target === "underground";
+    statusText.textContent = goingUnderground ? "화산 아래로 이동 중" : "지표로 이동 중";
+    lessonTitle.innerHTML = goingUnderground ? "화산 아래로<br>내려가고 있어요" : "다시 지표로<br>올라가고 있어요";
+  }
   renderer.render(scene, camera);
   frameCount++;
   const now = performance.now();
@@ -899,9 +1404,19 @@ if (previewParams.has("autoplay")) {
   const previewAge = Number(previewParams.get("age") || 0);
   beginEruption(-Math.max(0, previewAge));
 }
+if (previewParams.get("scene") === "underground") {
+  graniteGrowth = THREE.MathUtils.clamp(Number(previewParams.get("growth") || 0), 0, 1);
+  setViewMode("underground", true);
+}
+if (previewParams.get("transition") === "underground") setViewMode("underground");
 animate();
 
 document.querySelector("#erupt").addEventListener("click", (event) => {
+  if (viewMode === "underground") {
+    graniteGrowth = 0;
+    graniteGrowing = true;
+    return;
+  }
   if (activeEruptions.length) return;
   beginEruption(simulationTime);
   coolingTitle.textContent = "분출이 시작됐어요";
@@ -930,10 +1445,14 @@ document.querySelector("#cool").addEventListener("click", (event) => {
   event.currentTarget.textContent = "냉각 다시 시작";
 });
 
-document.querySelector("#reset").addEventListener("click", () => {
-  camera.position.set(36, 27, 39);
-  controls.target.set(0, 4, 0);
+resetButton.addEventListener("click", () => {
+  camera.position.set(...(viewMode === "surface" ? [36, 27, 39] : [0, -19, 44]));
+  controls.target.set(0, viewMode === "surface" ? 4 : -20, 0);
   controls.update();
+});
+
+sceneTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setViewMode(tab.dataset.scene));
 });
 
 addEventListener("resize", () => {
