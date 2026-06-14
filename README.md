@@ -1,47 +1,63 @@
-# Volcano scene prototype
+# 화산 분출과 현무암 생성 시뮬레이션
 
-First-stage visual and tablet-performance prototype for the basalt/granite learning app.
+초등학교 과학 수업에서 용암이 흐르고 식어 현무암이 되는 과정을 관찰하는 Three.js 웹앱 프로토타입입니다.
 
-## Run
+## 실행 방법
 
-Double-click `실행하기.bat`. It opens the prototype at:
+`실행하기.bat`를 더블 클릭한 뒤 브라우저에서 아래 주소를 엽니다.
 
 `http://127.0.0.1:4173`
 
-Do not open `index.html` directly through `file://`. Browser security rules block
-JavaScript modules and texture files loaded that way.
+`index.html`을 직접 열면 브라우저 보안 정책 때문에 JavaScript 모듈과 텍스처를 불러오지 못합니다.
 
-## Asset license
+## 현재 학습 흐름
 
-- `gray_rocks_*_1k.jpg`: Poly Haven, CC0
-  - Source: https://polyhaven.com/a/gray_rocks
-- `assets/lava002/*`: ambientCG Lava002, CC0
-  - Source: https://ambientcg.com/view?id=Lava002
-- `assets/lava004/*`: ambientCG Lava004, CC0
-  - Source: https://ambientcg.com/view?id=Lava004
-- `assets/basalt/*`: ambientCG Rock041, CC0
-  - Source: https://ambientcg.com/view?id=Rock041
+1. 처음에는 용암이 없는 화산이 보입니다.
+2. `분출 시작하기`를 누르면 분화구에서 폭발 효과가 나타납니다.
+3. 분출할 때마다 3~5개의 새로운 용암 경로를 계산합니다.
+4. 한 번 분출한 유한한 양의 용암이 지형 경사를 따라 끝까지 흐릅니다.
+5. 흐르는 동안에는 전체 용암이 뜨거운 Lava004 상태를 유지합니다.
+6. 모든 용암이 끝까지 도달한 뒤 산 아래쪽부터 Lava002 껍질이 나타납니다.
+7. 냉각이 계속되면 Rock041 현무암 표면으로 바뀝니다.
+8. 모든 용암이 굳으면 기존 현무암을 유지한 채 다시 분출할 수 있습니다.
 
-## Performance strategy
+`시간 빠르게 보기`를 누르면 흐름과 냉각 과정이 3배 빠르게 진행됩니다.
 
-- One shared tablet-safe quality level on both PC and tablet
-- Procedural crater terrain: 112 segments
-- 1K PBR textures
-- Pixel ratio capped at 1.25 and animated particles capped at 100 total
-- One active WebGL scene
-- Lava002 uses Color, Emission, NormalGL, and Roughness maps. The crater stays
-  procedural and hot; the photographed cooled crust blends in farther downhill.
-- Lava paths, widths, and one small branch are calculated once at startup by
-  following the terrain slope. No per-frame fluid simulation is used.
-- Four lava paths use deliberately different widths. One main path is broad,
-  while secondary paths and the branch remain narrower.
-- Surface bubbles and rising volcanic gas share two lightweight point-cloud
-  draw calls. They fade as cooling completes.
-- At full cooling, Rock041 Color, NormalGL, and Roughness maps blend over the
-  lava surface. A shader adds sparse pores without extra geometry.
-- The scene starts without lava. Each click creates one finite eruption with
-  3-5 newly calculated downhill paths.
-- Each point changes automatically from Lava004 to Lava002 and then Rock041
-  according to the time since lava reached that point.
-- Once an eruption fully solidifies, its meshes merge into one accumulated
-  basalt geometry. Existing basalt remains visible during later eruptions.
+## 구현 특징
+
+- 용암 경로는 분출 버튼을 누를 때 한 번만 계산합니다.
+- 실시간 유체 시뮬레이션 대신 지형 높이를 비교하여 아래쪽 경로를 찾습니다.
+- 셰이더의 연속 진행 위치로 용암 전면을 표시하여 계단식 움직임을 줄였습니다.
+- 용암 흐름마다 폭과 방향이 달라집니다.
+- 용암 표면 기포와 상승하는 화산가스를 가벼운 Points 파티클로 표현합니다.
+- 완전히 굳은 여러 용암 갈래는 하나의 누적 현무암 지오메트리로 병합합니다.
+- 누적 삼각형 수가 안전 기준에 도달하면 추가 분출을 제한합니다.
+
+## 재질 전환
+
+| 단계 | 사용 재질 | 설명 |
+| --- | --- | --- |
+| 흐르는 동안 | ambientCG Lava004 | 밝은 주황색의 뜨거운 용암 |
+| 도달 완료 후 냉각 | ambientCG Lava002 | 검은 껍질과 붉은 균열 |
+| 완전 냉각 | ambientCG Rock041 | 어두운 현무암과 일부 기공 |
+
+## 태블릿 성능 전략
+
+- PC와 태블릿에서 동일한 공통 품질 사용
+- 지형 세그먼트 112
+- 텍스처 해상도 1K
+- 픽셀 비율 최대 1.25
+- 움직이는 파티클 약 100개
+- 새 분출이 굳은 뒤 누적 현무암을 1개 오브젝트로 병합
+- 사용하지 않는 변위 지도와 고해상도 에셋 제외
+
+## 에셋 및 라이선스
+
+모든 런타임 텍스처는 CC0 에셋입니다.
+
+- [Poly Haven Gray Rocks](https://polyhaven.com/a/gray_rocks): 화산 지형
+- [ambientCG Lava004](https://ambientcg.com/view?id=Lava004): 뜨거운 용암
+- [ambientCG Lava002](https://ambientcg.com/view?id=Lava002): 식어가는 용암 껍질
+- [ambientCG Rock041](https://ambientcg.com/view?id=Rock041): 완전히 굳은 현무암
+
+에셋 조사 과정은 `ASSET_RESEARCH.md`, 전체 개발 과정은 `DEVELOPMENT_LOG_KO.md`에서 확인할 수 있습니다.
