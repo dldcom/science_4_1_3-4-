@@ -4,6 +4,13 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const canvas = document.querySelector("#scene");
 const metrics = document.querySelector("#metrics");
 const qualityLabel = document.querySelector("#quality-label");
+const coolingBar = document.querySelector("#cooling-bar");
+const coolingPercent = document.querySelector("#cooling-percent");
+const coolingTitle = document.querySelector("#cooling-title");
+const coolingMessage = document.querySelector("#cooling-message");
+const lessonCopy = document.querySelector("#lesson-copy");
+const lessonTitle = document.querySelector("#lesson-title");
+const eruptButton = document.querySelector("#erupt");
 const isMobile = matchMedia("(max-width: 900px), (pointer: coarse)").matches;
 const maxPixelRatio = 1.25;
 
@@ -145,6 +152,7 @@ const lavaUniforms = {
   uLavaRoughness: { value: lavaRoughness },
   uUsePbr: { value: 1 },
   uCoolingOffset: { value: 0 },
+  uSolidification: { value: 0 },
 };
 
 const lavaVertexShader = `
@@ -167,6 +175,7 @@ const lavaFragmentShader = `
   uniform sampler2D uLavaRoughness;
   uniform float uUsePbr;
   uniform float uCoolingOffset;
+  uniform float uSolidification;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -231,10 +240,13 @@ const lavaFragmentShader = `
     float textureRelief = dot(normalDetail, vec3(0.22, 0.65, 0.13));
     vec3 cooledTexture = pbrColor * mix(0.66, 1.08, textureRelief);
     cooledTexture *= mix(0.82, 1.05, 1.0 - roughnessMap);
-    vec3 textureGlow = emissionMap * vec3(1.45, 0.38, 0.035);
+    vec3 textureGlow = emissionMap * vec3(1.45, 0.38, 0.035) * (1.0 - uSolidification);
     vec3 color = mix(procedural, cooledTexture + textureGlow, pbrBlend);
+    vec3 basalt = pbrColor * vec3(0.31, 0.32, 0.34);
+    color = mix(color, basalt, smoothstep(0.58, 1.0, uSolidification));
 
-    float flicker = 0.93 + sin(time * 5.0 + broad * 11.0) * 0.07;
+    float flickerAmount = 0.07 * (1.0 - uSolidification);
+    float flicker = 0.93 + sin(time * 5.0 + broad * 11.0) * flickerAmount;
     gl_FragColor = vec4(color * flicker, 1.0);
   }
 `;
@@ -247,6 +259,7 @@ function makeLavaMaterial(usePbr = true, coolingOffset = 0) {
   uniforms.uLavaRoughness.value = lavaRoughness;
   uniforms.uUsePbr.value = usePbr ? 1 : 0;
   uniforms.uCoolingOffset.value = coolingOffset;
+  uniforms.uSolidification.value = 0;
   return new THREE.ShaderMaterial({
     uniforms,
     vertexShader: lavaVertexShader,
@@ -435,6 +448,10 @@ scene.add(smoke);
 
 let eruptionBoost = 1;
 let coolingTarget = new URLSearchParams(location.search).has("cooled") ? 1.35 : 0.68;
+let coolingProgress = new URLSearchParams(location.search).has("cooled") ? 1 : 0;
+let coolingActive = false;
+let coolingStartedAt = 0;
+const coolingDuration = 8;
 if (coolingTarget > 1) {
   [craterLava, ...lavaMeshes].forEach((surface) => {
     surface.material.uniforms.uCooling.value = coolingTarget;
@@ -445,6 +462,8 @@ let frameCount = 0;
 let lastMetricTime = performance.now();
 let fps = 0;
 const clock = new THREE.Clock();
+let previousElapsed = 0;
+let visualFlowTime = 0;
 
 function updateSmoke(time) {
   const arr = particleGeo.attributes.position.array;
@@ -461,21 +480,54 @@ function updateSmoke(time) {
 function animate() {
   requestAnimationFrame(animate);
   const elapsed = clock.getElapsedTime();
+  const delta = Math.min(0.05, Math.max(0, elapsed - previousElapsed));
+  previousElapsed = elapsed;
   controls.update();
   updateSmoke(elapsed);
 
   const lavaSurfaces = [craterLava, ...lavaMeshes];
+  if (coolingActive) {
+    coolingProgress = Math.min(1, (elapsed - coolingStartedAt) / coolingDuration);
+    if (coolingProgress >= 1) coolingActive = false;
+  }
+  const easedCooling = THREE.MathUtils.smoothstep(coolingProgress, 0, 1);
+  const animatedFlowSpeed = eruptionBoost * (1 - easedCooling * 0.98);
+  visualFlowTime += delta * animatedFlowSpeed;
+  coolingTarget = THREE.MathUtils.lerp(0.68, 1.55, easedCooling);
   lavaSurfaces.forEach((surface) => {
-    surface.material.uniforms.uTime.value = elapsed;
-    surface.material.uniforms.uFlowSpeed.value = eruptionBoost;
+    surface.material.uniforms.uTime.value = visualFlowTime;
+    surface.material.uniforms.uFlowSpeed.value = 1;
     surface.material.uniforms.uCooling.value = THREE.MathUtils.lerp(
       surface.material.uniforms.uCooling.value,
       coolingTarget,
       0.035,
     );
+    surface.material.uniforms.uSolidification.value = easedCooling;
   });
   craterLava.scale.setScalar(1 + Math.sin(elapsed * 2.6) * 0.025 * eruptionBoost);
-  magmaLight.intensity = 15 + Math.sin(elapsed * 3) * 2.5 * eruptionBoost;
+  magmaLight.intensity = (15 + Math.sin(elapsed * 3) * 2.5 * eruptionBoost) * (1 - easedCooling * 0.94);
+  smoke.material.opacity = 0.26 * (1 - easedCooling * 0.82);
+
+  const percent = Math.round(coolingProgress * 100);
+  coolingBar.style.width = `${percent}%`;
+  coolingPercent.textContent = `${percent}%`;
+  if (coolingProgress >= 1) {
+    coolingTitle.textContent = "현무암 생성 완료";
+    coolingMessage.textContent = "용암이 지표 가까이에서 빠르게 식어 어두운 현무암이 되었습니다.";
+    lessonCopy.textContent = "현무암은 마그마가 지표 가까이에서 빠르게 식어서 만들어집니다.";
+    lessonTitle.innerHTML = "용암이<br>현무암이 되었어요";
+    eruptButton.disabled = true;
+  } else if (coolingProgress > 0) {
+    coolingTitle.textContent = "빠르게 식는 중";
+    coolingMessage.textContent = "빛과 움직임이 줄고, 검은 암석 표면이 나타나고 있어요.";
+    lessonTitle.innerHTML = "용암이<br>빠르게 식고 있어요";
+    eruptButton.disabled = true;
+  } else {
+    coolingTitle.textContent = "뜨거운 용암";
+    coolingMessage.textContent = "지표 가까이의 용암을 빠르게 식혀 보세요.";
+    lessonTitle.innerHTML = "마그마가<br>지표로 나오고 있어요";
+    eruptButton.disabled = false;
+  }
 
   renderer.render(scene, camera);
   frameCount++;
@@ -495,8 +547,18 @@ document.querySelector("#erupt").addEventListener("click", (event) => {
 });
 
 document.querySelector("#cool").addEventListener("click", (event) => {
-  coolingTarget = coolingTarget < 0.8 ? 1.35 : 0.68;
-  event.currentTarget.textContent = coolingTarget > 1 ? "다시 뜨겁게 보기" : "표면 식히기";
+  if (coolingProgress >= 1) {
+    coolingProgress = 0;
+    coolingActive = false;
+    coolingTarget = 0.68;
+    lessonCopy.textContent = "화산을 돌려 보거나 확대해서 분화구와 용암의 흐름을 관찰해 보세요.";
+    lessonTitle.innerHTML = "마그마가<br>지표로 나오고 있어요";
+    event.currentTarget.textContent = "빠르게 식히기";
+    return;
+  }
+  coolingActive = true;
+  coolingStartedAt = clock.getElapsedTime() - coolingProgress * coolingDuration;
+  event.currentTarget.textContent = "냉각 다시 시작";
 });
 
 document.querySelector("#reset").addEventListener("click", () => {

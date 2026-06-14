@@ -12,8 +12,19 @@
 
     <section class="intro">
       <p class="eyebrow">3D VOLCANO LAB</p>
-      <h1>마그마가<br>지표로 나오고 있어요</h1>
-      <p>화산을 돌려 보거나 확대해서 분화구와 용암의 흐름을 관찰해 보세요.</p>
+      <h1 id="lesson-title">마그마가<br>지표로 나오고 있어요</h1>
+      <p id="lesson-copy">화산을 돌려 보거나 확대해서 분화구와 용암의 흐름을 관찰해 보세요.</p>
+    </section>
+
+    <section class="cooling-panel" id="cooling-panel" aria-live="polite">
+      <div class="cooling-labels">
+        <strong id="cooling-title">뜨거운 용암</strong>
+        <span id="cooling-percent">0%</span>
+      </div>
+      <div class="cooling-track">
+        <span id="cooling-bar"></span>
+      </div>
+      <p id="cooling-message">지표 가까이의 용암을 빠르게 식혀 보세요.</p>
     </section>
 
     <aside class="controls" aria-label="화산 장면 조작">
@@ -22,7 +33,7 @@
         <span>화산 활동 관찰 중</span>
       </div>
       <button id="erupt" type="button">분출 강하게 보기</button>
-      <button id="cool" type="button">표면 식히기</button>
+      <button id="cool" type="button">빠르게 식히기</button>
       <button id="reset" type="button" class="secondary">처음 위치로</button>
       <div class="quality">
         <span>렌더링 품질</span>
