@@ -1,0 +1,6 @@
+# Local render verification images
+/*.png
+
+# OS and editor files
+.DS_Store
+Thumbs.db
