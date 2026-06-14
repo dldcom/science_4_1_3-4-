@@ -307,7 +307,7 @@ const lavaFragmentShader = `
     hotTexture += hotEmission.r * vec3(1.0, 0.48, 0.045) * mix(0.72, 1.0, 1.0 - hotRoughness);
 
     // The downhill end is farther from the crater, so it cools first.
-    float localAge = max(0.0, uAge + vUv.y * 6.0);
+    float localAge = max(0.0, uAge + vUv.y * 3.0);
     float lava002Blend = smoothstep(3.0, 8.0, localAge);
     float basaltBlend = smoothstep(11.0, 17.0, localAge);
     vec3 color = mix(hotTexture, cooledTexture + textureGlow, lava002Blend);
@@ -475,7 +475,8 @@ const activeEruptions = [];
 let basaltArchive = null;
 let eruptionSerial = 0;
 const flowDuration = 7;
-const solidifyDuration = 18;
+const coolingDurationAfterArrival = 18;
+const solidifyDuration = flowDuration + coolingDurationAfterArrival;
 const maxArchivedTriangles = 9000;
 
 function generateEruptionPaths() {
@@ -729,15 +730,22 @@ function updateEruptions(time) {
   eruptButton.disabled = true;
   const age = time - current.startedAt;
   const reveal = THREE.MathUtils.clamp(age / flowDuration, 0, 1);
+  const coolingAge = Math.max(0, age - flowDuration);
   refreshGasVents(reveal);
   current.meshes.forEach((mesh) => {
     mesh.material.uniforms.uReveal.value = reveal;
-    mesh.material.uniforms.uAge.value = age;
+    mesh.material.uniforms.uAge.value = coolingAge;
     mesh.material.uniforms.uTime.value = visualFlowTime;
-    mesh.material.uniforms.uSolidification.value = THREE.MathUtils.clamp((age - 10) / 8, 0, 1);
+    mesh.material.uniforms.uSolidification.value = THREE.MathUtils.clamp(
+      (coolingAge - 10) / 8,
+      0,
+      1,
+    );
   });
 
-  const progress = THREE.MathUtils.clamp(age / solidifyDuration, 0, 1);
+  const progress = reveal < 1
+    ? 0
+    : THREE.MathUtils.clamp(coolingAge / coolingDurationAfterArrival, 0, 1);
   coolingBar.style.width = `${Math.round(progress * 100)}%`;
   coolingPercent.textContent = `${Math.round(progress * 100)}%`;
   coolingTitle.textContent = reveal < 1 ? "용암이 흘러가는 중" : "현무암으로 굳는 중";
