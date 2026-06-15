@@ -18,7 +18,7 @@
     <section class="intro">
       <p class="eyebrow">3D VOLCANO LAB</p>
       <h1 id="lesson-title">마그마가<br>지표로 나오고 있어요</h1>
-      <p id="lesson-copy">화산을 돌려 보거나 확대해서 분화구와 용암의 흐름을 관찰해 보세요.</p>
+      <p id="lesson-copy">용암이 흐른 후에 빠르게 굳으며 현무암이 생성됩니다.</p>
     </section>
 
     <section class="cooling-panel" id="cooling-panel" aria-live="polite">
@@ -39,13 +39,71 @@
       </div>
       <button id="erupt" type="button">분출 강하게 보기</button>
       <button id="cool" type="button">빠르게 식히기</button>
+      <button id="compare" type="button" class="secondary">현무암·화강암 비교</button>
       <button id="reset" type="button" class="secondary">처음 위치로</button>
-      <div class="quality">
-        <span>렌더링 품질</span>
-        <strong id="quality-label">자동</strong>
-      </div>
-      <div class="metrics" id="metrics">성능 측정 중...</div>
     </aside>
+
+    <section class="comparison" id="comparison" aria-labelledby="comparison-title" aria-hidden="true">
+      <div class="comparison-header">
+        <div>
+          <p class="eyebrow">ROCK COMPARISON</p>
+          <h2 id="comparison-title">같은 마그마, 다른 암석</h2>
+          <p>식는 장소와 속도가 달라지면 광물 알갱이의 크기도 달라집니다.</p>
+        </div>
+        <button id="close-comparison" type="button" class="secondary" aria-label="비교 화면 닫기">닫기</button>
+      </div>
+      <div class="rock-cards">
+        <article class="rock-card basalt-card">
+          <img src="./assets/basalt/Rock041_1K-JPG_Color.jpg" alt="어두운 현무암 표면">
+          <div>
+            <span class="rock-location">지표 가까이</span>
+            <h3>현무암</h3>
+            <strong>빠르게 식어요</strong>
+            <p>광물이 자랄 시간이 짧아 알갱이가 매우 작고, 어두운 한 덩어리처럼 보입니다.</p>
+          </div>
+        </article>
+        <article class="rock-card granite-card">
+          <img src="./assets/granite/Granite002B_1K-JPG_Color.jpg" alt="밝고 알갱이가 보이는 화강암 표면">
+          <div>
+            <span class="rock-location">지하 깊은 곳</span>
+            <h3>화강암</h3>
+            <strong>천천히 식어요</strong>
+            <p>광물이 자랄 시간이 충분해 석영·장석·흑운모 알갱이를 눈으로 구별할 수 있습니다.</p>
+          </div>
+        </article>
+      </div>
+      <div class="comparison-rule">
+        <span>빠르게 냉각</span>
+        <div><i></i></div>
+        <strong>식는 시간이 길수록 광물 알갱이가 크게 자라요</strong>
+        <div><i></i></div>
+        <span>천천히 냉각</span>
+      </div>
+      <button id="start-quiz" type="button" class="quiz-start">확인 퀴즈 시작</button>
+    </section>
+
+    <section class="quiz" id="quiz" aria-labelledby="quiz-title" aria-hidden="true">
+      <div class="quiz-header">
+        <div>
+          <p class="eyebrow">CHECK YOUR LEARNING</p>
+          <h2 id="quiz-title">암석 생성 확인 퀴즈</h2>
+        </div>
+        <button id="close-quiz" type="button" class="secondary" aria-label="퀴즈 닫기">닫기</button>
+      </div>
+      <div class="quiz-progress">
+        <span id="quiz-step">1 / 3</span>
+        <div><i id="quiz-progress-bar"></i></div>
+      </div>
+      <div class="quiz-body" id="quiz-body">
+        <span class="quiz-topic" id="quiz-topic">생성 위치</span>
+        <h3 id="quiz-question">문제를 준비하고 있어요.</h3>
+        <div class="quiz-options" id="quiz-options"></div>
+        <p class="quiz-feedback" id="quiz-feedback" aria-live="polite"></p>
+      </div>
+      <div class="quiz-actions">
+        <button id="quiz-next" type="button" disabled>다음 문제</button>
+      </div>
+    </section>
 
     <div class="hint">드래그하여 회전 · 두 손가락으로 확대</div>
   </main>

@@ -3,8 +3,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const canvas = document.querySelector("#scene");
-const metrics = document.querySelector("#metrics");
-const qualityLabel = document.querySelector("#quality-label");
 const coolingBar = document.querySelector("#cooling-bar");
 const coolingPercent = document.querySelector("#cooling-percent");
 const coolingTitle = document.querySelector("#cooling-title");
@@ -15,6 +13,20 @@ const statusText = document.querySelector("#status-text");
 const eruptButton = document.querySelector("#erupt");
 const timeButton = document.querySelector("#cool");
 const resetButton = document.querySelector("#reset");
+const compareButton = document.querySelector("#compare");
+const comparison = document.querySelector("#comparison");
+const closeComparisonButton = document.querySelector("#close-comparison");
+const startQuizButton = document.querySelector("#start-quiz");
+const quiz = document.querySelector("#quiz");
+const closeQuizButton = document.querySelector("#close-quiz");
+const quizStep = document.querySelector("#quiz-step");
+const quizProgressBar = document.querySelector("#quiz-progress-bar");
+const quizBody = document.querySelector("#quiz-body");
+const quizTopic = document.querySelector("#quiz-topic");
+const quizQuestion = document.querySelector("#quiz-question");
+const quizOptions = document.querySelector("#quiz-options");
+const quizFeedback = document.querySelector("#quiz-feedback");
+const quizNextButton = document.querySelector("#quiz-next");
 const sceneTabs = [...document.querySelectorAll(".scene-tab")];
 const isMobile = matchMedia("(max-width: 900px), (pointer: coarse)").matches;
 const maxPixelRatio = 1.25;
@@ -24,7 +36,7 @@ timeButton.textContent = "시간 빠르게 보기";
 coolingTitle.textContent = "분출 전";
 coolingMessage.textContent = "분출 시작하기를 누르면 화산이 폭발하고 용암이 흘러나옵니다.";
 lessonTitle.innerHTML = "화산 분출을<br>시작해 보세요";
-lessonCopy.textContent = "분출할 때마다 새로운 경로로 용암이 흐르고, 이전에 만들어진 현무암은 그대로 남습니다.";
+lessonCopy.textContent = "용암이 흐른 후에 빠르게 굳으며 현무암이 생성됩니다.";
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -36,7 +48,6 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.28;
-qualityLabel.textContent = "태블릿 공통";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x090b0c);
@@ -734,7 +745,7 @@ for (let index = 0; index < cutawayPositions.count; index++) {
 }
 cutawayGeometry.computeVertexNormals();
 const cutawayWall = new THREE.Mesh(cutawayGeometry, sectionMaterial);
-cutawayWall.position.set(0, -24, -8.5);
+cutawayWall.position.set(0, -24, -6.5);
 underground.add(cutawayWall);
 
 const roofGeometry = new THREE.BoxGeometry(58, 4.5, 18, 24, 2, 8);
@@ -791,13 +802,26 @@ function makeMagmaBody(radius, material, seed, scale) {
 }
 
 const chamberMaterial = new THREE.MeshStandardMaterial({
-  normalMap: hotLavaNormal,
+  map: hotLavaColor.clone(),
+  emissiveMap: hotLavaEmission.clone(),
+  normalMap: hotLavaNormal.clone(),
   normalScale: new THREE.Vector2(1.35, 1.35),
-  roughnessMap: hotLavaRoughness,
-  color: 0x672310,
-  emissive: 0xff2608,
-  emissiveIntensity: 0.42,
+  roughnessMap: hotLavaRoughness.clone(),
+  color: 0xff744d,
+  emissive: 0xff5a24,
+  emissiveIntensity: 0.85,
   roughness: 0.82,
+});
+const chamberFlowTextures = [
+  chamberMaterial.map,
+  chamberMaterial.emissiveMap,
+  chamberMaterial.normalMap,
+  chamberMaterial.roughnessMap,
+];
+chamberFlowTextures.forEach((texture) => {
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2.2, 1.65);
+  texture.needsUpdate = true;
 });
 const chamberBodyMaterial = chamberMaterial.clone();
 chamberBodyMaterial.transparent = true;
@@ -819,8 +843,36 @@ const intrusionMaterial = new THREE.MeshStandardMaterial({
   emissiveIntensity: 0.28,
   roughness: 0.9,
 });
+const chamberSocket = makeIrregularBlob(
+  7.6,
+  2,
+  sectionMaterial,
+  41.3,
+  new THREE.Vector3(1.58, 0.88, 0.5),
+);
+chamberSocket.position.set(1.5, -27, -4.8);
+underground.add(chamberSocket);
+
+const chamberRimGeometry = new THREE.TorusGeometry(6.4, 1.25, 18, 64);
+const chamberRimPositions = chamberRimGeometry.attributes.position;
+const chamberRimVertex = new THREE.Vector3();
+for (let index = 0; index < chamberRimPositions.count; index++) {
+  chamberRimVertex.fromBufferAttribute(chamberRimPositions, index);
+  const variation = 0.9 + smoothNoise(
+    chamberRimVertex.x * 0.38 + 47,
+    chamberRimVertex.y * 0.38 - 29 + chamberRimVertex.z,
+  ) * 0.18;
+  chamberRimVertex.multiplyScalar(variation);
+  chamberRimPositions.setXYZ(index, chamberRimVertex.x, chamberRimVertex.y, chamberRimVertex.z);
+}
+chamberRimGeometry.computeVertexNormals();
+const chamberRim = new THREE.Mesh(chamberRimGeometry, sectionMaterial);
+chamberRim.position.set(1.5, -27, -1.8);
+chamberRim.scale.set(1.52, 0.78, 0.5);
+underground.add(chamberRim);
+
 const magmaChamber = makeMagmaBody(6.4, chamberBodyMaterial, 18.7, new THREE.Vector3(1.5, 0.76, 0.62));
-magmaChamber.position.set(1.5, -27, 0.5);
+magmaChamber.position.set(1.5, -27, -3.5);
 underground.add(magmaChamber);
 const chamberBaseScale = magmaChamber.scale.clone();
 const graniteChamber = new THREE.Mesh(magmaChamber.geometry, graniteMaterial);
@@ -829,11 +881,12 @@ graniteChamber.scale.copy(chamberBaseScale);
 underground.add(graniteChamber);
 
 const conduitCurve = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(1.5, -23.5, 0),
-  new THREE.Vector3(-1.2, -19, -0.4),
-  new THREE.Vector3(1.1, -14.5, 0.1),
-  new THREE.Vector3(-0.5, -9.5, -0.6),
-  new THREE.Vector3(0, -5.2, -0.2),
+  new THREE.Vector3(1.5, -25.7, -4.25),
+  new THREE.Vector3(1.5, -23.5, -4.9),
+  new THREE.Vector3(-1.2, -19, -5.05),
+  new THREE.Vector3(1.1, -14.5, -5.15),
+  new THREE.Vector3(-0.5, -9.5, -5.1),
+  new THREE.Vector3(0, -5.2, -4.95),
 ]);
 const conduit = new THREE.Mesh(
   new THREE.TubeGeometry(conduitCurve, 72, 0.48, 12, false),
@@ -842,9 +895,9 @@ const conduit = new THREE.Mesh(
 underground.add(conduit);
 
 const dikeCurves = [
-  [new THREE.Vector3(-0.4, -17, -1), new THREE.Vector3(-8, -13.5, -2), new THREE.Vector3(-15, -10.5, -2.8)],
-  [new THREE.Vector3(0.8, -14, -1), new THREE.Vector3(8, -11.8, -2), new THREE.Vector3(15, -8.5, -3)],
-  [new THREE.Vector3(3.5, -25, -1), new THREE.Vector3(11, -22.5, -2), new THREE.Vector3(18, -20, -3)],
+  [new THREE.Vector3(-0.4, -17, -5), new THREE.Vector3(-8, -13.5, -5.2), new THREE.Vector3(-15, -10.5, -5.45)],
+  [new THREE.Vector3(0.8, -14, -5), new THREE.Vector3(8, -11.8, -5.2), new THREE.Vector3(15, -8.5, -5.4)],
+  [new THREE.Vector3(3.5, -25, -4.9), new THREE.Vector3(11, -22.5, -5.15), new THREE.Vector3(18, -20, -5.4)],
 ];
 dikeCurves.forEach((points, index) => {
   const dike = new THREE.Mesh(
@@ -855,7 +908,7 @@ dikeCurves.forEach((points, index) => {
 });
 
 const chamberLight = new THREE.PointLight(0xff4b16, 6, 28, 1.8);
-chamberLight.position.set(1.5, -25, 5);
+chamberLight.position.set(1.5, -25, 0.5);
 underground.add(chamberLight);
 
 const convectionCount = 22;
@@ -866,7 +919,7 @@ const convectionSeeds = Array.from({ length: convectionCount }, (_, index) => ({
   angle: index / convectionCount * Math.PI * 2,
   radius: 1.6 + (index % 6) * 0.72,
   speed: 0.12 + (index % 5) * 0.018,
-  depth: 3.2 + (index % 4) * 0.15,
+  depth: -0.8 + (index % 4) * 0.15,
 }));
 const magmaConvection = new THREE.Points(
   convectionGeometry,
@@ -966,6 +1019,8 @@ let viewMode = "surface";
 let viewTransition = null;
 let graniteGrowth = 0;
 let graniteGrowing = false;
+let undergroundFlowTime = 0;
+let undergroundConvectionTime = 0;
 let explosionStartedAt = -100;
 let coolingTarget = 0;
 const lavaMeshes = [];
@@ -979,9 +1034,6 @@ if (coolingTarget > 1) {
   });
   document.querySelector("#cool").textContent = "다시 뜨겁게 보기";
 }
-let frameCount = 0;
-let lastMetricTime = performance.now();
-let fps = 0;
 const clock = new THREE.Clock();
 let previousElapsed = 0;
 let visualFlowTime = 0;
@@ -1061,9 +1113,9 @@ function updateEruptions(time) {
   coolingPercent.textContent = `${Math.round(progress * 100)}%`;
   coolingTitle.textContent = reveal < 1 ? "용암이 흘러가는 중" : "현무암으로 굳는 중";
   coolingMessage.textContent = reveal < 1
-    ? "한 번 분출한 용암이 경사를 따라 아래로 흐르고 있어요."
-    : "먼저 흘러나온 용암부터 서서히 어두운 현무암으로 굳고 있어요.";
-  lessonTitle.innerHTML = reveal < 1 ? "용암이<br>흘러내려가고 있어요" : "용암이<br>현무암으로 굳고 있어요";
+    ? "용암이 경사를 따라 아래로 흐르고 있어요."
+    : "용암이 빠르게 식어 어두운 현무암으로 굳고 있어요.";
+  lessonTitle.innerHTML = reveal < 1 ? "용암이<br>흘러내리는 중" : "현무암으로<br>굳는 중";
 
   if (age >= solidifyDuration && !current.complete) {
     current.complete = true;
@@ -1073,7 +1125,7 @@ function updateEruptions(time) {
     eruptButton.disabled = false;
     eruptButton.textContent = "다시 분출하기";
     coolingTitle.textContent = "모든 용암이 굳었어요";
-    coolingMessage.textContent = "기존 현무암은 그대로 남아 있습니다. 다시 분출할 수 있어요.";
+    coolingMessage.textContent = "용암이 빠르게 식어 현무암이 되었습니다.";
     lessonTitle.innerHTML = "용암이<br>현무암이 되었어요";
   }
 }
@@ -1151,8 +1203,10 @@ function setViewMode(mode, immediate = false) {
     timeButton.disabled = true;
     resetButton.disabled = true;
     statusText.textContent = goingUnderground ? "화산 아래로 이동 중" : "지표로 이동 중";
-    lessonTitle.innerHTML = goingUnderground ? "화산 아래로<br>내려가고 있어요" : "다시 지표로<br>올라가고 있어요";
-    lessonCopy.textContent = "화산 내부는 대부분 단단한 암석이며, 마그마는 균열과 통로를 따라 이동합니다.";
+    lessonTitle.innerHTML = goingUnderground ? "지하로<br>이동 중" : "지표로<br>이동 중";
+    lessonCopy.textContent = goingUnderground
+      ? "지하 깊은 곳의 마그마는 천천히 식습니다."
+      : "지표 가까이의 용암은 빠르게 식습니다.";
     return;
   }
 
@@ -1249,12 +1303,21 @@ function updateGranite(delta) {
   grainMeshes.forEach((mesh) => {
     mesh.instanceMatrix.needsUpdate = true;
   });
+  const solidifying = THREE.MathUtils.smoothstep(eased, 0.08, 0.72);
   chamberBodyMaterial.color.setRGB(
-    THREE.MathUtils.lerp(0.4, 0.5, eased),
-    THREE.MathUtils.lerp(0.14, 0.46, eased),
-    THREE.MathUtils.lerp(0.06, 0.43, eased),
+    THREE.MathUtils.lerp(1, 0.28, solidifying),
+    THREE.MathUtils.lerp(1, 0.24, solidifying),
+    THREE.MathUtils.lerp(1, 0.22, solidifying),
   );
-  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.42, 0.015, eased);
+  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.85, 0.015, eased);
+  chamberBodyMaterial.roughness = THREE.MathUtils.lerp(0.82, 1, solidifying);
+  chamberBodyMaterial.normalScale.setScalar(THREE.MathUtils.lerp(1.35, 0.65, solidifying));
+  chamberMaterial.color.setRGB(
+    THREE.MathUtils.lerp(1, 0.38, solidifying),
+    THREE.MathUtils.lerp(0.46, 0.18, solidifying),
+    THREE.MathUtils.lerp(0.3, 0.12, solidifying),
+  );
+  chamberMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.85, 0.12, solidifying);
   chamberBodyMaterial.opacity = 1 - graniteBlend;
   graniteMaterial.opacity = graniteBlend;
   graniteMaterial.color.setRGB(
@@ -1267,38 +1330,47 @@ function updateGranite(delta) {
   const percent = Math.round(graniteGrowth * 100);
   coolingBar.style.width = `${percent}%`;
   coolingPercent.textContent = `${percent}%`;
-  coolingTitle.textContent = graniteGrowth >= 1 ? "화강암 생성 완료" : graniteGrowth > 0 ? "결정이 천천히 자라는 중" : "지하의 마그마";
+  coolingTitle.textContent = graniteGrowth >= 1 ? "화강암 생성 완료" : graniteGrowth > 0 ? "화강암으로 굳는 중" : "지하의 마그마";
   coolingMessage.textContent = graniteGrowth >= 1
-    ? "작은 광물 알갱이들이 자라고 서로 맞물려 화강암이 되었습니다."
-    : "회색 석영, 분홍 장석, 검은 흑운모 알갱이가 천천히 자라며 암석 속에 박힙니다.";
+    ? "마그마가 천천히 식어 화강암이 되었습니다."
+    : graniteGrowth > 0 ? "광물 알갱이가 자라며 서로 맞물립니다." : "마그마 식히기를 눌러 보세요.";
   lessonTitle.innerHTML = graniteGrowth >= 1
-    ? "마그마가<br>화강암이 되었어요"
-    : graniteGrowth > 0 ? "광물 결정이<br>천천히 자라고 있어요" : "지하의 마그마를<br>관찰해 보세요";
-  lessonCopy.textContent = "현무암은 지표에서 빠르게, 화강암은 지하에서 천천히 식어 만들어집니다.";
-  eruptButton.textContent = graniteGrowth >= 1 ? "결정 성장 다시 보기" : graniteGrowing ? "결정 성장 관찰 중" : "결정 성장 시작하기";
+    ? "화강암<br>생성 완료"
+    : graniteGrowth > 0 ? "광물 알갱이<br>성장 중" : "지하 마그마<br>관찰";
+  lessonCopy.textContent = graniteGrowth >= 1
+    ? "화강암에는 여러 광물 알갱이가 보입니다."
+    : graniteGrowth > 0 ? "마그마가 천천히 식으며 광물 알갱이가 자랍니다." : "마그마가 천천히 식으면 화강암이 생성됩니다.";
+  eruptButton.textContent = graniteGrowth >= 1 ? "다시 식혀 보기" : graniteGrowing ? "마그마가 식는 중" : "마그마 식히기";
   eruptButton.disabled = graniteGrowing;
 }
 
-function updateUnderground(time) {
+function updateUnderground(time, delta) {
   const cooling = THREE.MathUtils.smoothstep(graniteGrowth, 0, 1);
-  const pulse = 1 + Math.sin(time * 0.85) * 0.018 * (1 - cooling);
+  const flowActivity = 1 - THREE.MathUtils.smoothstep(cooling, 0.02, 0.58);
+  undergroundFlowTime += delta * flowActivity;
+  undergroundConvectionTime += delta * flowActivity;
+  chamberFlowTextures.forEach((texture, index) => {
+    texture.offset.x = undergroundFlowTime * (0.016 + index * 0.0015);
+    texture.offset.y = -undergroundFlowTime * (0.035 + index * 0.002);
+  });
+  const pulse = 1 + Math.sin(time * 0.85) * 0.018 * flowActivity;
   magmaChamber.scale.copy(chamberBaseScale).multiplyScalar(pulse);
-  magmaChamber.rotation.y = Math.sin(time * 0.18) * 0.035;
+  magmaChamber.rotation.y = Math.sin(time * 0.18) * 0.035 * flowActivity;
   graniteChamber.scale.copy(magmaChamber.scale);
   graniteChamber.rotation.copy(magmaChamber.rotation);
-  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.42, 0.015, cooling)
-    + Math.sin(time * 1.15) * 0.04 * (1 - cooling);
+  chamberBodyMaterial.emissiveIntensity = THREE.MathUtils.lerp(0.85, 0.015, cooling)
+    + Math.sin(time * 1.15) * 0.04 * flowActivity;
   chamberLight.intensity = THREE.MathUtils.lerp(6, 1.5, cooling)
-    + Math.sin(time * 0.9) * 0.5 * (1 - cooling);
+    + Math.sin(time * 0.9) * 0.5 * flowActivity;
   const positions = convectionGeometry.attributes.position.array;
   convectionSeeds.forEach((seed, index) => {
-    const angle = seed.angle + time * seed.speed;
+    const angle = seed.angle + undergroundConvectionTime * seed.speed;
     positions[index * 3] = 1.5 + Math.cos(angle) * seed.radius * 1.35;
     positions[index * 3 + 1] = -27 + Math.sin(angle) * seed.radius * 0.58;
     positions[index * 3 + 2] = seed.depth;
   });
   convectionGeometry.attributes.position.needsUpdate = true;
-  magmaConvection.material.opacity = 0.44 * (1 - cooling);
+  magmaConvection.material.opacity = 0.44 * flowActivity;
 }
 
 function animate() {
@@ -1373,7 +1445,7 @@ function animate() {
       : eruptionSerial > 0 ? "다시 분출하기" : "분출 시작하기";
     coolingTitle.textContent = eruptionSerial > 0 ? "모든 용암이 굳었어요" : "분출 전";
     coolingMessage.textContent = eruptionSerial > 0
-      ? "기존 현무암은 그대로 남아 있습니다. 다시 분출할 수 있어요."
+      ? "용암이 빠르게 식어 현무암이 되었습니다."
       : "분출 시작하기를 누르면 화산이 폭발하고 용암이 흘러나옵니다.";
     lessonTitle.innerHTML = eruptionSerial > 0
       ? "용암이<br>현무암이 되었어요"
@@ -1382,21 +1454,18 @@ function animate() {
     coolingPercent.textContent = eruptionSerial > 0 ? "100%" : "0%";
   }
   if (viewMode === "underground") updateGranite(delta);
-  updateUnderground(elapsed);
+  updateUnderground(elapsed, delta);
   if (viewTransition) {
     const goingUnderground = viewTransition.target === "underground";
     statusText.textContent = goingUnderground ? "화산 아래로 이동 중" : "지표로 이동 중";
-    lessonTitle.innerHTML = goingUnderground ? "화산 아래로<br>내려가고 있어요" : "다시 지표로<br>올라가고 있어요";
+    lessonTitle.innerHTML = goingUnderground ? "지하로<br>이동 중" : "지표로<br>이동 중";
+    lessonCopy.textContent = goingUnderground
+      ? "지하 깊은 곳의 마그마는 천천히 식습니다."
+      : "지표 가까이의 용암은 빠르게 식습니다.";
+    coolingTitle.textContent = goingUnderground ? "지하 마그마 관찰 준비" : "지표로 이동 중";
+    coolingMessage.textContent = goingUnderground ? "화산 아래의 마그마를 관찰합니다." : "화산 지표로 이동합니다.";
   }
   renderer.render(scene, camera);
-  frameCount++;
-  const now = performance.now();
-  if (now - lastMetricTime > 1000) {
-    fps = Math.round(frameCount * 1000 / (now - lastMetricTime));
-    metrics.textContent = `${fps} FPS · ${renderer.info.render.triangles.toLocaleString()} triangles · ${renderer.info.render.calls} calls`;
-    frameCount = 0;
-    lastMetricTime = now;
-  }
 }
 const previewParams = new URLSearchParams(location.search);
 if (previewParams.has("fast")) timeScale = 3;
@@ -1409,6 +1478,7 @@ if (previewParams.get("scene") === "underground") {
   setViewMode("underground", true);
 }
 if (previewParams.get("transition") === "underground") setViewMode("underground");
+if (previewParams.has("compare")) setComparisonOpen(true);
 animate();
 
 document.querySelector("#erupt").addEventListener("click", (event) => {
@@ -1420,8 +1490,8 @@ document.querySelector("#erupt").addEventListener("click", (event) => {
   if (activeEruptions.length) return;
   beginEruption(simulationTime);
   coolingTitle.textContent = "분출이 시작됐어요";
-  coolingMessage.textContent = "폭발 뒤 유한한 양의 용암이 무작위 경로로 흘러나옵니다.";
-  lessonTitle.innerHTML = "화산이 폭발하며<br>용암이 나와요";
+  coolingMessage.textContent = "용암이 흘러나옵니다.";
+  lessonTitle.innerHTML = "용암<br>분출 중";
   return;
   eruptionBoost = eruptionBoost === 1 ? 2.4 : 1;
   event.currentTarget.textContent = eruptionBoost > 1 ? "분출 평소대로 보기" : "분출 강하게 보기";
@@ -1435,7 +1505,7 @@ document.querySelector("#cool").addEventListener("click", (event) => {
     coolingProgress = 0;
     coolingActive = false;
     coolingTarget = 0.68;
-    lessonCopy.textContent = "화산을 돌려 보거나 확대해서 분화구와 용암의 흐름을 관찰해 보세요.";
+    lessonCopy.textContent = "용암이 흐른 후에 빠르게 굳으며 현무암이 생성됩니다.";
     lessonTitle.innerHTML = "마그마가<br>지표로 나오고 있어요";
     event.currentTarget.textContent = "빠르게 식히기";
     return;
@@ -1454,6 +1524,139 @@ resetButton.addEventListener("click", () => {
 sceneTabs.forEach((tab) => {
   tab.addEventListener("click", () => setViewMode(tab.dataset.scene));
 });
+
+function setComparisonOpen(open) {
+  comparison.classList.toggle("open", open);
+  comparison.setAttribute("aria-hidden", String(!open));
+  controls.enabled = !open && !viewTransition;
+  if (open) closeComparisonButton.focus();
+  else compareButton.focus();
+}
+
+const quizQuestions = [
+  {
+    topic: "생성 위치",
+    question: "지하 깊은 곳에서 마그마가 천천히 식으면 어떤 암석이 만들어질까요?",
+    options: ["현무암", "화강암", "두 암석 모두 만들어지지 않아요"],
+    answer: 1,
+    explanation: "지하 깊은 곳에서는 마그마가 천천히 식어 광물 알갱이가 큰 화강암이 만들어집니다.",
+  },
+  {
+    topic: "냉각 속도",
+    question: "마그마가 천천히 식을수록 광물 알갱이는 어떻게 될까요?",
+    options: ["더 크게 자라요", "더 작아져요", "알갱이가 사라져요"],
+    answer: 0,
+    explanation: "천천히 식으면 광물이 자랄 시간이 충분해 알갱이가 크게 자랍니다.",
+  },
+  {
+    topic: "현무암 생성",
+    question: "지표로 나온 용암이 빠르게 식으면 어떤 암석이 만들어질까요?",
+    options: ["현무암", "화강암", "석회암"],
+    answer: 0,
+    explanation: "지표로 나온 용암은 빠르게 식어 광물 알갱이가 작은 현무암이 됩니다.",
+  },
+];
+let quizIndex = 0;
+let quizScore = 0;
+let quizAnswered = false;
+
+function setOverlayOpen(element, open) {
+  element.classList.toggle("open", open);
+  element.setAttribute("aria-hidden", String(!open));
+  controls.enabled = !open && !viewTransition;
+}
+
+function renderQuizQuestion() {
+  const question = quizQuestions[quizIndex];
+  quizAnswered = false;
+  quizStep.textContent = `${quizIndex + 1} / ${quizQuestions.length}`;
+  quizProgressBar.style.width = `${(quizIndex + 1) / quizQuestions.length * 100}%`;
+  quizTopic.textContent = question.topic;
+  quizQuestion.textContent = question.question;
+  quizFeedback.textContent = "정답이라고 생각하는 문장을 선택해 보세요.";
+  quizNextButton.disabled = true;
+  quizNextButton.textContent = quizIndex === quizQuestions.length - 1 ? "결과 보기" : "다음 문제";
+  quizOptions.replaceChildren();
+  question.options.forEach((option, optionIndex) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quiz-option";
+    button.textContent = option;
+    button.addEventListener("click", () => answerQuiz(optionIndex));
+    quizOptions.append(button);
+  });
+}
+
+function answerQuiz(optionIndex) {
+  if (quizAnswered) return;
+  quizAnswered = true;
+  const question = quizQuestions[quizIndex];
+  const correct = optionIndex === question.answer;
+  if (correct) quizScore++;
+  [...quizOptions.children].forEach((button, index) => {
+    button.disabled = true;
+    if (index === question.answer) button.classList.add("correct");
+    else if (index === optionIndex) button.classList.add("wrong");
+  });
+  quizFeedback.textContent = `${correct ? "맞았어요. " : "다시 생각해 볼까요? "}${question.explanation}`;
+  quizNextButton.disabled = false;
+}
+
+function showQuizResult() {
+  quizStep.textContent = "완료";
+  quizProgressBar.style.width = "100%";
+  quizBody.classList.add("quiz-result");
+  quizTopic.textContent = "학습 결과";
+  quizQuestion.textContent = "현무암과 화강암의 차이를 확인했어요.";
+  quizOptions.innerHTML = `<strong>${quizScore} / ${quizQuestions.length}</strong>`;
+  quizFeedback.textContent = quizScore === quizQuestions.length
+    ? "모든 문제를 맞혔어요. 식는 장소와 속도가 암석의 모습을 바꾼다는 것을 잘 이해했습니다."
+    : "비교 화면을 다시 보며 식는 속도와 광물 알갱이 크기의 관계를 확인해 보세요.";
+  quizNextButton.disabled = false;
+  quizNextButton.textContent = "다시 풀기";
+}
+
+function startQuiz() {
+  quizIndex = 0;
+  quizScore = 0;
+  quizBody.classList.remove("quiz-result");
+  setComparisonOpen(false);
+  setOverlayOpen(quiz, true);
+  renderQuizQuestion();
+  closeQuizButton.focus();
+}
+
+compareButton.addEventListener("click", () => setComparisonOpen(true));
+closeComparisonButton.addEventListener("click", () => setComparisonOpen(false));
+startQuizButton.addEventListener("click", startQuiz);
+closeQuizButton.addEventListener("click", () => {
+  setOverlayOpen(quiz, false);
+  compareButton.focus();
+});
+quizNextButton.addEventListener("click", () => {
+  if (quizIndex === quizQuestions.length - 1) {
+    if (quizBody.classList.contains("quiz-result")) startQuiz();
+    else showQuizResult();
+    return;
+  }
+  quizIndex++;
+  renderQuizQuestion();
+});
+comparison.addEventListener("click", (event) => {
+  if (event.target === comparison) setComparisonOpen(false);
+});
+addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && comparison.classList.contains("open")) setComparisonOpen(false);
+  if (event.key === "Escape" && quiz.classList.contains("open")) setOverlayOpen(quiz, false);
+});
+
+if (previewParams.has("quiz")) startQuiz();
+if (previewParams.get("quiz") === "answered") answerQuiz(1);
+if (previewParams.get("quiz") === "result") {
+  quizScore = 3;
+  quizIndex = quizQuestions.length - 1;
+  showQuizResult();
+}
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
